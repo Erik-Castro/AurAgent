@@ -16,19 +16,27 @@ export class GeminiProvider implements ModelProvider {
     const body = this.buildBody(request);
     const url = `${this.config.baseUrl}/v1beta/models/${this.config.model}:generateContent?key=${this.config.apiKey}`;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    if (!response.ok) {
-      await response.body?.cancel();
-      return { content: '', finishReason: 'error' };
+      if (!response.ok) {
+        const text = await response.text();
+        await response.body?.cancel();
+        return { content: `HTTP ${response.status}: ${text}`, finishReason: 'error' };
+      }
+
+      const data = await response.json();
+      return this.parseResponse(data);
+    } catch (err) {
+      return {
+        content: `Erro de conexão: ${(err as Error).message}`,
+        finishReason: 'error',
+      };
     }
-
-    const data = await response.json();
-    return this.parseResponse(data);
   }
 
   stream(request: StreamRequest): ReadableStream<ModelEvent> {

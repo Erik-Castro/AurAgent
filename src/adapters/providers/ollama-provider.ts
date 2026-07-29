@@ -15,23 +15,30 @@ export class OllamaProvider implements ModelProvider {
 
   async generate(request: GenerateRequest): Promise<GenerateResponse> {
     const body = this.buildBody(request, false);
-    const response = await fetch(`${this.config.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
+    try {
+      const response = await fetch(`${this.config.baseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
 
-    if (!response.ok) {
-      const text = await response.text();
-      await response.body?.cancel();
+      if (!response.ok) {
+        const text = await response.text();
+        await response.body?.cancel();
+        return {
+          content: `HTTP ${response.status}: ${text}`,
+          finishReason: 'error',
+        };
+      }
+
+      const data = await response.json();
+      return this.parseResponse(data);
+    } catch (err) {
       return {
-        content: `HTTP ${response.status}: ${text}`,
+        content: `Erro de conexão: ${(err as Error).message}`,
         finishReason: 'error',
       };
     }
-
-    const data = await response.json();
-    return this.parseResponse(data);
   }
 
   stream(request: StreamRequest): ReadableStream<ModelEvent> {

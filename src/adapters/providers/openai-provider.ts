@@ -15,27 +15,35 @@ export class OpenAIProvider implements ModelProvider {
 
   async generate(request: GenerateRequest): Promise<GenerateResponse> {
     const body = this.buildBody(request, false);
-    const response = await fetch(
-      `${this.config.baseUrl}/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(this.config.apiKey
-            ? { Authorization: `Bearer ${this.config.apiKey}` }
-            : {}),
+    try {
+      const response = await fetch(
+        `${this.config.baseUrl}/chat/completions`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(this.config.apiKey
+              ? { Authorization: `Bearer ${this.config.apiKey}` }
+              : {}),
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      },
-    );
+      );
 
-    if (!response.ok) {
-      await response.body?.cancel();
-      return { content: '', finishReason: 'error' };
+      if (!response.ok) {
+        const text = await response.text();
+        await response.body?.cancel();
+        return { content: `HTTP ${response.status}: ${text}`, finishReason: 'error' };
+      }
+
+      const data = await response.json();
+      return this.parseResponse(data);
+    } catch (err) {
+      return {
+        content: `Erro de conexão: ${(err as Error).message}`,
+        finishReason: 'error',
+      };
     }
-
-    const data = await response.json();
-    return this.parseResponse(data);
   }
 
   stream(request: StreamRequest): ReadableStream<ModelEvent> {
