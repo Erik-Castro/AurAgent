@@ -1,0 +1,9 @@
+{
+  "id": "fix-simple-bug",
+  "description": "Repositório com teste quebrado por bug simples em operação matemática",
+  "task": "Corrija os testes vermelhos em tests/math_test.ts até que todos passem",
+  "expectedStatus": "success",
+  "maxIterations": 10,
+  "checkTest": true,
+  "checkPatch": true
+}

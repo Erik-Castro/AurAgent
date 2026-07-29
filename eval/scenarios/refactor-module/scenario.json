@@ -1,0 +1,10 @@
+{
+  "id": "refactor-module",
+  "description": "Módulo monolítico que deve ser dividido em arquivos por responsabilidade",
+  "task": "Extraia a lógica de validação (validateEmail, validatePhone) para src/validate.ts e a lógica de formatação (formatDate, formatCurrency) para src/format.ts, mantendo as exportações em src/index.ts",
+  "expectedStatus": "success",
+  "maxIterations": 15,
+  "checkTest": false,
+  "checkPatch": false,
+  "checkFiles": ["src/validate.ts", "src/format.ts"]
+}

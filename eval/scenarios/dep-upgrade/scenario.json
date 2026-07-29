@@ -1,0 +1,11 @@
+{
+  "id": "dep-upgrade",
+  "description": "Dependência desatualizada que precisa ser atualizada",
+  "task": "Atualize a versão do @std/assert em deno.jsonc de ^0.220.0 para ^1.0.0",
+  "expectedStatus": "success",
+  "maxIterations": 5,
+  "checkTest": false,
+  "checkPatch": false,
+  "checkFiles": ["deno.jsonc"],
+  "checkContent": { "deno.jsonc": "\"@std/assert\": \"jsr:@std/assert@^1.0.0\"" }
+}

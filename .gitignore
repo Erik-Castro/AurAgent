@@ -1,0 +1,14 @@
+# Deno
+deno.lock
+
+# Generated
+.codegraph/
+.atl/
+
+# Editor
+*.swp
+*.swo
+*~
+
+# Build
+aur
