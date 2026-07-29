@@ -22,9 +22,10 @@ export class OllamaProvider implements ModelProvider {
     });
 
     if (!response.ok) {
+      const text = await response.text();
       await response.body?.cancel();
       return {
-        content: '',
+        content: `HTTP ${response.status}: ${text}`,
         finishReason: 'error',
       };
     }

@@ -113,6 +113,11 @@ export class GeminiProvider implements ModelProvider {
                       type: 'done',
                       finishReason: 'tool_calls',
                     });
+                  } else if (reason === 'MAX_TOKENS') {
+                    controller.enqueue({
+                      type: 'done',
+                      finishReason: 'length',
+                    });
                   } else {
                     controller.enqueue({ type: 'done', finishReason: 'stop' });
                   }
@@ -266,6 +271,10 @@ export class GeminiProvider implements ModelProvider {
     const mappedReason =
       finishReason === 'TOOL_CALL' || finishReason === 'FUNCTION_CALL'
         ? 'tool_calls'
+        : finishReason === 'MAX_TOKENS'
+        ? 'length'
+        : finishReason === 'STOP'
+        ? 'stop'
         : 'stop';
 
     return {

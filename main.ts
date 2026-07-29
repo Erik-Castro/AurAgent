@@ -37,6 +37,7 @@ function parseFlags(): {
   rulesPaths: string[];
   securityConfigPath: string | undefined;
   isWatch: boolean;
+  model: string | undefined;
   task: string;
 } {
   let permissions: PermissionLevel = 'default';
@@ -46,6 +47,7 @@ function parseFlags(): {
   let isWatch = false;
   const rulesPaths: string[] = [];
   let securityConfigPath: string | undefined;
+  let model: string | undefined;
   const taskArgs: string[] = [];
 
   const args = Deno.args;
@@ -65,6 +67,9 @@ function parseFlags(): {
         break;
       case '--tui':
         tui = true;
+        break;
+      case '--model':
+        if (i + 1 < args.length) model = args[++i];
         break;
       case '--rules':
         if (i + 1 < args.length) rulesPaths.push(args[++i]);
@@ -88,6 +93,7 @@ function parseFlags(): {
     rulesPaths,
     securityConfigPath,
     isWatch,
+    model,
     task: taskArgs.join(' '),
   };
 }
@@ -103,7 +109,7 @@ function buildRunnerOpts(
     explain: flags.explain,
     rulesPaths: flags.rulesPaths,
     securityPatterns,
-    modelOverride: Deno.env.get('AUR_MODEL') ?? undefined,
+    modelOverride: flags.model ?? Deno.env.get('AUR_MODEL') ?? undefined,
   };
 }
 
@@ -173,7 +179,7 @@ if (import.meta.main) {
 
   if (!flags.task && !flags.isWatch) {
     console.error(
-      'Uso: aur [--approve-all] [--readonly] [--dry-run] [--explain] [--tui] [--rules path] [--security-config path] "sua tarefa"',
+      'Uso: aur [--approve-all] [--readonly] [--dry-run] [--explain] [--tui] [--model modelo] [--rules path] [--security-config path] "sua tarefa"',
     );
     console.error('  ou: aur watch [flags] ["tarefa"]');
     Deno.exit(1);

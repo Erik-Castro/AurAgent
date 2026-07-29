@@ -4,7 +4,7 @@
   "tasks": {
     "dev": "deno run --allow-run --allow-read --allow-write --allow-net --allow-env main.ts",
     "eval": "deno run --allow-run --allow-read --allow-write --allow-net --allow-env eval/mod.ts",
-    "test": "deno test --allow-read --allow-write --allow-env",
+    "test": "deno test --allow-read --allow-write --allow-env --unstable-kv",
     "lint": "deno lint",
     "check": "deno check **/*.ts",
     "compile": "deno compile --output aur main.ts"

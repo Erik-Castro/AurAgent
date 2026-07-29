@@ -1,5 +1,7 @@
 import type { MemoryStore } from '../ports/memory-store.ts';
 
+const DEFAULT_LIST_LIMIT = 1_000;
+
 export class DenoKVStore implements MemoryStore {
   private kv: Deno.Kv | null = null;
 
@@ -21,12 +23,16 @@ export class DenoKVStore implements MemoryStore {
     await kv.delete([key]);
   }
 
-  async list(prefix?: string): Promise<string[]> {
+  async list(prefix?: string, limit: number = DEFAULT_LIST_LIMIT): Promise<string[]> {
     const kv = await this.ensure();
-    const entries = kv.list<string>({ prefix: prefix ? [prefix] : [] });
+    const entries = prefix
+      ? kv.list<string>({ prefix: [prefix] })
+      : kv.list<string>({ prefix: [] as string[] });
     const keys: string[] = [];
     for await (const entry of entries) {
-      keys.push(entry.key[0] as string);
+      // Reconstitui a chave completa juntando todos os segmentos
+      keys.push(entry.key.join(':'));
+      if (keys.length >= limit) break;
     }
     return keys;
   }
@@ -36,6 +42,10 @@ export class DenoKVStore implements MemoryStore {
       this.kv.close();
       this.kv = null;
     }
+  }
+
+  isOpen(): boolean {
+    return this.kv !== null;
   }
 
   private async ensure(): Promise<Deno.Kv> {

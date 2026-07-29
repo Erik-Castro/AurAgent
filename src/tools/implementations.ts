@@ -26,6 +26,21 @@ export const readFileHandler: ToolHandler = {
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const paths = call.args.paths as string[];
     const linesOpt = call.args.lines as { start?: number; end?: number } | undefined;
+    const encoding = (call.args.encoding as string | undefined) ?? 'utf-8';
+
+    if (encoding === 'base64') {
+      // Read raw bytes and return base64
+      const entries = await Promise.all(
+        paths.map(async (path) => {
+          const bytes = await Deno.readFile(
+            path.startsWith('/') ? path : `${ctx.config.workingDir}/${path}`,
+          );
+          const base64 = btoa(String.fromCharCode(...bytes));
+          return { path, content: base64, language: 'base64', size: bytes.length };
+        }),
+      );
+      return { callId: call.id, output: JSON.stringify(entries, null, 2) };
+    }
 
     const entries = await ctx.workspace.readMultiple(paths);
 

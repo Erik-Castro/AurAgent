@@ -30,6 +30,7 @@ export interface ProcessRequest {
   command: string;
   cwd?: string;
   timeoutMs?: number;
+  maxOutputChars?: number;
   env?: Record<string, string>;
 }
 

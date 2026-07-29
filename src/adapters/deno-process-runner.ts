@@ -6,14 +6,17 @@ import { RestrictedCommands } from './restricted-commands.ts';
 export class DenoProcessRunner implements ProcessRunner {
   private restricted: RestrictedCommands;
 
-  constructor(restricted?: RestrictedCommands) {
+  constructor(
+    restricted?: RestrictedCommands,
+    private defaultTimeoutMs: number = 30_000,
+  ) {
     this.restricted = restricted ?? new RestrictedCommands();
   }
 
   async run(request: ProcessRequest): Promise<ProcessResult> {
     this.restricted.check(request.command);
 
-    const timeoutMs = request.timeoutMs ?? 30_000;
+    const timeoutMs = request.timeoutMs ?? this.defaultTimeoutMs;
 
     const cmd = new Deno.Command('bash', {
       args: ['-c', request.command],
@@ -25,37 +28,40 @@ export class DenoProcessRunner implements ProcessRunner {
 
     const process = cmd.spawn();
 
-    let timedOut = false;
-    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const outputPromise = process.output();
+    const timeoutPromise = timeoutMs > 0
+      ? new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            try {
+              process.kill('SIGTERM');
+              // Give process a moment to terminate, then SIGKILL
+              setTimeout(() => {
+                try { process.kill('SIGKILL'); } catch { /* already dead */ }
+              }, 2000);
+            } catch {
+              // process may already have exited
+            }
+            reject(
+              new ToolExecutionError(
+                `Process timed out after ${timeoutMs}ms`,
+                'ShellBash',
+              ),
+            );
+          }, timeoutMs);
+        })
+      : new Promise<never>(() => {}); // never resolves, no timeout
 
-    const result = await Promise.race([
-      process.output(),
-      new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          timedOut = true;
-          process.kill('SIGTERM');
-          reject(
-            new ToolExecutionError(
-              `Process timed out after ${timeoutMs}ms`,
-              'ShellBash',
-            ),
-          );
-        }, timeoutMs);
-      }),
-    ]);
-
-    clearTimeout(timeoutId);
-
-    if (timedOut) {
-      throw new ToolExecutionError(
-        `Process timed out after ${timeoutMs}ms`,
-        'ShellBash',
-      );
+    let output: Deno.CommandOutput;
+    try {
+      output = await Promise.race([outputPromise, timeoutPromise]);
+    } finally {
+      // Ensure process is cleaned up even if timeout fires
+      try { process.kill('SIGKILL'); } catch { /* already dead */ }
     }
 
-    const stdout = new TextDecoder().decode(result.stdout);
-    const stderr = new TextDecoder().decode(result.stderr);
-    const maxChars = 100_000;
+    const stdout = new TextDecoder().decode(output.stdout);
+    const stderr = new TextDecoder().decode(output.stderr);
+    const maxChars = request.maxOutputChars ?? 100_000;
 
     let truncated = false;
     let outputStdout = stdout;
@@ -76,7 +82,7 @@ export class DenoProcessRunner implements ProcessRunner {
     }
 
     return {
-      code: result.code,
+      code: output.code,
       stdout: outputStdout,
       stderr: outputStderr,
       truncated,

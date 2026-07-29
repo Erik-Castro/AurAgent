@@ -1,4 +1,5 @@
 import type { Workspace } from '../ports/workspace.ts';
+import type { EventBus } from '../ports/event-bus.ts';
 
 export interface CheckpointEntry {
   id: string;
@@ -12,7 +13,10 @@ export class CheckpointManager {
   private checkpoints: CheckpointEntry[] = [];
   private baseDir: string;
 
-  constructor(workspaceRoot: string) {
+  constructor(
+    workspaceRoot: string,
+    private eventBus?: EventBus,
+  ) {
     this.baseDir = `${workspaceRoot}/.aur/checkpoints`;
   }
 
@@ -43,6 +47,7 @@ export class CheckpointManager {
 
     this.checkpoints.push(entry);
     await this.persistEntry(entry);
+    this.eventBus?.emit('checkpoint:created', { id, filePath, iteration });
     return id;
   }
 
@@ -55,12 +60,17 @@ export class CheckpointManager {
       throw new Error(`Checkpoint ${id} não encontrado`);
     }
     await workspace.write(entry.filePath, entry.originalContent);
+    this.eventBus?.emit('checkpoint:restored', { id, filePath: entry.filePath });
   }
 
   async restoreLast(workspace: Workspace): Promise<void> {
     const last = this.checkpoints[this.checkpoints.length - 1];
     if (!last) return;
     await workspace.write(last.filePath, last.originalContent);
+    this.eventBus?.emit('checkpoint:restored', {
+      id: last.id,
+      filePath: last.filePath,
+    });
   }
 
   async cleanup(): Promise<void> {

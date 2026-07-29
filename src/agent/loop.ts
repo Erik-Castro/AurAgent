@@ -103,8 +103,11 @@ export async function runReActLoop(
       };
     }
 
-    // Summarization by age
     memory.summarizeByAge();
+    ctx.eventBus.emit('context:summarized', {
+      iteration: iterations,
+      messageCount: memory.getMessageCount(),
+    });
 
     ctx.eventBus.emit('iteration:finished', { iteration: iterations });
   }

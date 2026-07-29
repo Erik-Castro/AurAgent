@@ -23,6 +23,7 @@ export class Agent {
 
     const memory = new WorkingMemory(this.ctx.config);
     await memory.loadInstructionFiles(this.ctx.workspace);
+    this.ctx.eventBus.emit('memory:loaded', { messageCount: memory.getMessageCount() });
     memory.addUser(task);
 
     try {
@@ -43,6 +44,16 @@ export class Agent {
         iterations: 0,
         durationMs: 0,
       };
+    } finally {
+      // Close the KV store to prevent resource leaks
+      const maybeClosable = this.ctx.memoryStore as unknown as { close?: () => void };
+      if (typeof maybeClosable.close === 'function') {
+        try {
+          maybeClosable.close();
+        } catch {
+          // non-critical cleanup
+        }
+      }
     }
   }
 
@@ -63,6 +74,7 @@ export class Agent {
     if (!this.ctx.checkpointManager) {
       patches.checkpointManager = new CheckpointManager(
         this.ctx.config.workingDir,
+        this.ctx.eventBus,
       );
     }
 
@@ -83,6 +95,7 @@ export class Agent {
       const projectKey = this.ctx.config.workingDir.replace(/[\/\\]/g, '_');
       const key = `session:${projectKey}:${Date.now()}`;
       await this.ctx.memoryStore.set(key, summary);
+      this.ctx.eventBus.emit('memory:persisted', { key, task, status: result.status });
     } catch {
       // non-critical, ignore
     }
