@@ -6,5 +6,7 @@ import './agent/read-only-guard_test.ts';
 import './agent/checkpoint_test.ts';
 import './agent/hitl-manager_test.ts';
 import './tools/tool-registry_test.ts';
+import './tools/handlers_test.ts';
 import './adapters/deno-kv-store_test.ts';
 import './adapters/event-bus_test.ts';
+import './adapters/deno-workspace_test.ts';

@@ -139,14 +139,14 @@ export const GREP_DEF: ToolDefinition = {
 
 export const RUN_TESTS_DEF: ToolDefinition = {
   name: 'RunTests',
-  description: 'Executa a suíte de testes do projeto e retorna resultados estruturados.',
+  description: 'Executa a suíte de testes do projeto e retorna resultados estruturados. Suporta Deno, Vitest e Jest.',
   parameters: {
     type: 'object',
     properties: {
       framework: {
         type: 'string',
         enum: ['deno', 'jest', 'vitest'],
-        description: 'Framework de testes. Detecta automaticamente.',
+        description: 'Framework de testes. Detecta automaticamente (deno.jsonc → Deno, vitest.config.ts → Vitest, jest.config.* → Jest).',
       },
       filter: {
         type: 'string',

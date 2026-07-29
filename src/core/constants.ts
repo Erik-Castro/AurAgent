@@ -2,8 +2,6 @@ export const DEFAULT_MAX_ITERATIONS = 15;
 
 export const DEFAULT_CONCURRENCY = 4;
 
-export const DEFAULT_TIMEOUT_MS = 30_000;
-
 export const DEFAULT_CONTEXT_TOKEN_LIMIT = 128_000;
 
 export const DEFAULT_STERILE_LOOP_THRESHOLD = 3;

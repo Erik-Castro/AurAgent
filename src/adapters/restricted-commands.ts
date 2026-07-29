@@ -1,20 +1,11 @@
 import { PermissionError } from '../core/errors.ts';
+import { loadSecurityRules } from '../core/security-config.ts';
 
 export class RestrictedCommands {
   private patterns: RegExp[];
 
   constructor(patterns?: RegExp[]) {
-    this.patterns = patterns ?? [
-      /^rm\s+-rf\s+\/$/,
-      /^rm\s+-rf\s+\/[\w/]+\s*$/,
-      /^>\s+\/dev\/(sd|nvme|vd)/,
-      /^mkfs\.\w+/,
-      /^dd\s+if=/,
-      /^chmod\s+777\s+\/$/,
-      /^git\s+push\s+--force\s+/,
-      /^curl\s+(https?:\/\/)?(10\.|192\.168\.)/,
-      /^wget\s+(https?:\/\/)?(10\.|192\.168\.)/,
-    ];
+    this.patterns = patterns ?? loadSecurityRules();
   }
 
   check(command: string): void {

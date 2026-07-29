@@ -250,8 +250,19 @@ export const listDepsHandler: ToolHandler = {
       (await detectEcosystem(ctx));
 
     if (ecosystem === 'deno') {
-      const content = await ctx.workspace.read('deno.json')
-        || await ctx.workspace.read('deno.jsonc');
+      let content: string | null = null;
+      try {
+        content = await ctx.workspace.read('deno.json')
+          || await ctx.workspace.read('deno.jsonc');
+      } catch {
+        // files may not exist
+      }
+      if (!content) {
+        return {
+          callId: call.id,
+          output: JSON.stringify({ error: 'deno.json ou deno.jsonc não encontrado' }, null, 2),
+        };
+      }
       const parsed = JSON.parse(content);
       const deps = Object.entries(parsed.imports ?? {}).map(
         ([name, version]) => ({ name, version: String(version), type: 'import' }),
@@ -259,17 +270,24 @@ export const listDepsHandler: ToolHandler = {
       return { callId: call.id, output: JSON.stringify(deps, null, 2) };
     }
 
-    const content = await ctx.workspace.read('package.json');
-    const pkg = JSON.parse(content);
-    const deps = [
-      ...Object.entries(pkg.dependencies ?? {}).map(
-        ([name, version]) => ({ name, version, type: 'prod' }),
-      ),
-      ...Object.entries(pkg.devDependencies ?? {}).map(
-        ([name, version]) => ({ name, version, type: 'dev' }),
-      ),
-    ];
-    return { callId: call.id, output: JSON.stringify(deps, null, 2) };
+    try {
+      const content = await ctx.workspace.read('package.json');
+      const pkg = JSON.parse(content);
+      const deps = [
+        ...Object.entries(pkg.dependencies ?? {}).map(
+          ([name, version]) => ({ name, version, type: 'prod' }),
+        ),
+        ...Object.entries(pkg.devDependencies ?? {}).map(
+          ([name, version]) => ({ name, version, type: 'dev' }),
+        ),
+      ];
+      return { callId: call.id, output: JSON.stringify(deps, null, 2) };
+    } catch {
+      return {
+        callId: call.id,
+        output: JSON.stringify({ error: 'package.json não encontrado ou inválido' }, null, 2),
+      };
+    }
   },
 };
 
