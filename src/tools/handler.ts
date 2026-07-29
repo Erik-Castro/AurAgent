@@ -10,6 +10,7 @@ export interface ToolContext {
   eventBus: EventBus;
   memoryStore: MemoryStore;
   config: AgentConfig;
+  readInput: (promptText: string) => Promise<string>;
 }
 
 export interface ToolHandler {

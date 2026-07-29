@@ -147,6 +147,7 @@ function buildEvalContext(config: AgentConfig): AgentContext {
     memoryStore: new DenoKVStore(),
     toolHandlers: buildToolRegistry().handlers,
     config,
+    readInput: () => Promise.resolve(''),
   };
 }
 

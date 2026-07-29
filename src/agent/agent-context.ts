@@ -18,4 +18,5 @@ export interface AgentContext {
   config: AgentConfig;
   hitlManager?: HITLManager;
   checkpointManager?: CheckpointManager;
+  readInput: (promptText: string) => Promise<string>;
 }

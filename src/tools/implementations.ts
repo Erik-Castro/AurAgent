@@ -385,18 +385,17 @@ export const askUserHandler: ToolHandler = {
   definition: defs.ASK_USER_DEF,
   riskLevel: 'low',
   parallelSafe: false,
-  execute(call: ToolCall, _ctx: ToolContext): Promise<ToolResult> {
+  async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const question = call.args.question as string;
     const options = call.args.options as string[] | undefined;
 
-    const optsText = options
-      ? `\nOpções:\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`
-      : '';
+    let promptText = question;
+    if (options && options.length > 0) {
+      promptText += `\nOpções:\n${options.map((o, i) => `${i + 1}. ${o}`).join('\n')}`;
+    }
 
-    return Promise.resolve({
-      callId: call.id,
-      output: `[AskUser — pendente de resposta do usuário]\nPergunta: ${question}${optsText}`,
-    });
+    const answer = await ctx.readInput(promptText);
+    return { callId: call.id, output: answer };
   },
 };
 

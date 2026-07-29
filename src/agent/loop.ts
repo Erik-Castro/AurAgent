@@ -60,7 +60,23 @@ export async function runReActLoop(
     memory.addAssistant(response.content, response.toolCalls);
     if (response.content) lastOutput = response.content;
 
-    if (response.finishReason === 'stop') {
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      const results = await executeToolCalls(
+        response.toolCalls,
+        iterations,
+        ctx,
+        sterileDetector,
+      );
+      for (const callResult of results) {
+        memory.addToolResult(
+          callResult.callId,
+          callResult.output,
+          callResult.toolName,
+        );
+      }
+    }
+
+    if (response.finishReason === 'stop' && !response.toolCalls?.length) {
       ctx.eventBus.emit('task:completed', {
         status: 'success',
         iterations,
@@ -85,22 +101,6 @@ export async function runReActLoop(
         iterations,
         durationMs: Date.now() - startTime,
       };
-    }
-
-    if (response.toolCalls && response.toolCalls.length > 0) {
-      const results = await executeToolCalls(
-        response.toolCalls,
-        iterations,
-        ctx,
-        sterileDetector,
-      );
-      for (const callResult of results) {
-        memory.addToolResult(
-          callResult.callId,
-          callResult.output,
-          callResult.toolName,
-        );
-      }
     }
 
     // Summarization by age
@@ -326,6 +326,7 @@ async function executeOneToolCall(
       eventBus: ctx.eventBus,
       memoryStore: ctx.memoryStore,
       config: ctx.config,
+      readInput: ctx.readInput,
     });
 
     if (

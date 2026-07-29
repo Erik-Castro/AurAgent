@@ -39,6 +39,11 @@ export function buildAgentContext(opts: RunnerOptions): AgentContext {
       explain: opts.explain,
       rulesPaths: opts.rulesPaths,
     },
+    readInput: (promptText: string) => {
+      console.log(`\n${promptText}`);
+      const answer = prompt('> ') ?? '';
+      return Promise.resolve(answer);
+    },
   };
 }
 
