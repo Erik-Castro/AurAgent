@@ -332,15 +332,98 @@ export const installDepHandler: ToolHandler = {
   },
 };
 
+export interface DuckDuckGoSearchResult {
+  title: string;
+  url: string;
+  snippet: string;
+}
+
+export function parseDuckDuckGoHtml(html: string): DuckDuckGoSearchResult[] {
+  const results: DuckDuckGoSearchResult[] = [];
+  const titleRegex =
+    /<a[^>]*class="result__a"[^>]*>([\s\S]*?)<\/a>/g;
+  const hrefRegex = /href="([^"]*)"/;
+  const snippetRegex =
+    /<(?:a|div)[^>]*class="result__snippet"[^>]*>([\s\S]*?)<\/(?:a|div)>/g;
+  const titles: Array<{ url: string; title: string }> = [];
+  const snippets: string[] = [];
+
+  let titleMatch: RegExpExecArray | null;
+  while ((titleMatch = titleRegex.exec(html)) !== null) {
+    const fullTag = titleMatch[0];
+    const hrefMatch = fullTag.match(hrefRegex);
+    const rawUrl = hrefMatch ? hrefMatch[1] : '';
+    const url = rawUrl.includes('uddg=')
+      ? decodeURIComponent(rawUrl.match(/uddg=([^&]*)/)?.[1] ?? rawUrl)
+      : rawUrl;
+    const title = titleMatch[1].replace(/<[^>]*>/g, '').trim();
+    titles.push({ url, title });
+  }
+
+  let snippetMatch: RegExpExecArray | null;
+  while ((snippetMatch = snippetRegex.exec(html)) !== null) {
+    snippets.push(snippetMatch[1].replace(/<[^>]*>/g, '').trim());
+  }
+
+  for (let i = 0; i < titles.length; i++) {
+    results.push({
+      title: titles[i].title,
+      url: titles[i].url,
+      snippet: snippets[i] ?? '',
+    });
+  }
+
+  return results;
+}
+
 export const webSearchHandler: ToolHandler = {
   definition: defs.WEB_SEARCH_DEF,
   riskLevel: 'low',
   parallelSafe: true,
-  execute(call: ToolCall, _ctx: ToolContext): Promise<ToolResult> {
-    return Promise.resolve({
-      callId: call.id,
-      output: '[WebSearch não configurado. Configure um provedor de busca.]',
-    });
+  async execute(call: ToolCall, _ctx: ToolContext): Promise<ToolResult> {
+    const query = call.args.query as string;
+    const maxResults = (call.args.max_results as number | undefined) ?? 3;
+
+    try {
+      const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent':
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+      });
+
+      if (!response.ok) {
+        return {
+          callId: call.id,
+          output: `[WebSearch] Erro HTTP ${response.status}: ${response.statusText}`,
+        };
+      }
+
+      const html = await response.text();
+      const results = parseDuckDuckGoHtml(html).slice(0, maxResults);
+
+      if (results.length === 0) {
+        return {
+          callId: call.id,
+          output: `[WebSearch] Nenhum resultado encontrado para: ${query}`,
+        };
+      }
+
+      const output = results
+        .map(
+          (r, i) =>
+            `Result ${i + 1}: ${r.title}\nURL: ${r.url}\nSnippet: ${r.snippet}`,
+        )
+        .join('\n---\n');
+
+      return { callId: call.id, output };
+    } catch (err) {
+      return {
+        callId: call.id,
+        output: `[WebSearch] Erro na busca: ${(err as Error).message}`,
+      };
+    }
   },
 };
 

@@ -12,3 +12,4 @@ deno.lock
 
 # Build
 aur
+docs/*

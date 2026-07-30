@@ -126,13 +126,13 @@ Deno.test('GrepHandler busca texto em arquivos', async () => {
   assertEquals(parsed[0].file, 'src/a.ts');
 });
 
-Deno.test('WebSearchHandler retorna stub message', async () => {
+Deno.test('WebSearchHandler não retorna stub message', async () => {
   const ctx = createMockContext();
   const result = await handlers.webSearchHandler.execute(
     makeCall({ name: 'WebSearch', args: { query: 'test' } }),
     ctx,
   );
-  assert(result.output.includes('não configurado'));
+  assert(!result.output.includes('não configurado'));
 });
 
 Deno.test('AskUserHandler usa readInput', async () => {
