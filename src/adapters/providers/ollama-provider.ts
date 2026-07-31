@@ -176,10 +176,13 @@ export class OllamaProvider implements ModelProvider {
       const data = await response.json();
       const modelInfo = data.model_info as Record<string, unknown> | undefined;
       const params = data.parameters as Record<string, unknown> | undefined;
-      const raw = modelInfo?.['llama.context_length'] ??
-        params?.num_ctx ??
+      const archKey = Object.keys(modelInfo ?? {}).find((k) =>
+        k.endsWith('.context_length')
+      );
+      const raw = params?.num_ctx ??
         data.num_ctx ??
-        data.context_length;
+        data.context_length ??
+        (archKey ? modelInfo![archKey] : undefined);
       if (typeof raw === 'number' && raw >= 512) return raw;
       return null;
     } catch {

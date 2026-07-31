@@ -47,3 +47,50 @@ Deno.test('OpenAIProvider generate retorna erro quando servidor offline', async 
   const response = await provider.generate(request);
   assertEquals(response.finishReason, 'error');
 });
+
+function mockShowResponse(body: unknown) {
+  const original = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))) as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
+}
+
+Deno.test('OllamaProvider getContextWindow lê chave por arquitetura (qwen2.context_length)', async () => {
+  const restore = mockShowResponse({
+    model_info: { 'qwen2.context_length': 32768 },
+  });
+  try {
+    const provider = new OllamaProvider(baseConfig);
+    const result = await provider.getContextWindow();
+    assertEquals(result, 32768);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test('OllamaProvider getContextWindow prefere parameters.num_ctx', async () => {
+  const restore = mockShowResponse({
+    model_info: { 'llama.context_length': 131072 },
+    parameters: { num_ctx: 8192 },
+  });
+  try {
+    const provider = new OllamaProvider(baseConfig);
+    const result = await provider.getContextWindow();
+    assertEquals(result, 8192);
+  } finally {
+    restore();
+  }
+});
+
+Deno.test('OllamaProvider getContextWindow retorna null sem info válida', async () => {
+  const restore = mockShowResponse({ model_info: {} });
+  try {
+    const provider = new OllamaProvider(baseConfig);
+    const result = await provider.getContextWindow();
+    assertEquals(result, null);
+  } finally {
+    restore();
+  }
+});
