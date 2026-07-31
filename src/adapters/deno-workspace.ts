@@ -1,4 +1,28 @@
 import type { Workspace, WorkspaceEntry } from '../ports/workspace.ts';
+import { WorkspacePathError } from '../core/errors.ts';
+
+function normalizeSegments(abs: string): string {
+  const parts = abs.split('/');
+  const result: string[] = [];
+  for (const part of parts) {
+    if (part === '' || part === '.') continue;
+    if (part === '..') {
+      if (result.length === 0) {
+        throw new WorkspacePathError(`Path fora do workspace: ${abs}`);
+      }
+      result.pop();
+      continue;
+    }
+    result.push(part);
+  }
+  return '/' + result.join('/');
+}
+
+function isPathInsideWorkspace(root: string, resolved: string): boolean {
+  const normalizedRoot = normalizeSegments(root);
+  if (resolved === normalizedRoot) return false;
+  return resolved.startsWith(normalizedRoot + '/');
+}
 
 export class DenoWorkspace implements Workspace {
   constructor(private basePath: string = Deno.cwd()) {}
@@ -8,7 +32,20 @@ export class DenoWorkspace implements Workspace {
   }
 
   async write(path: string, content: string): Promise<void> {
+    if (typeof content !== 'string') {
+      throw new TypeError('content deve ser uma string');
+    }
     const fullPath = this.resolve(path);
+    try {
+      const info = await Deno.stat(fullPath);
+      if (info.isDirectory) {
+        throw new WorkspacePathError(`Path é um diretório: ${path}`);
+      }
+    } catch (err) {
+      if (!(err instanceof Deno.errors.NotFound) && err instanceof WorkspacePathError) {
+        throw err;
+      }
+    }
     await Deno.mkdir(this.dirname(fullPath), { recursive: true });
     await Deno.writeTextFile(fullPath, content);
   }
@@ -48,8 +85,18 @@ export class DenoWorkspace implements Workspace {
   }
 
   private resolve(path: string): string {
-    if (path.startsWith('/')) return path;
-    return `${this.basePath}/${path}`;
+    if (typeof path !== 'string' || path.trim() === '') {
+      throw new WorkspacePathError('Path vazio ou inválido');
+    }
+    if (path.includes('\0')) {
+      throw new WorkspacePathError('Path contém caractere NUL');
+    }
+    const candidate = path.startsWith('/') ? path : `${this.basePath}/${path}`;
+    const normalized = normalizeSegments(candidate);
+    if (!isPathInsideWorkspace(this.basePath, normalized)) {
+      throw new WorkspacePathError(`Path fora do workspace: ${path}`);
+    }
+    return normalized;
   }
 
   private dirname(path: string): string {
