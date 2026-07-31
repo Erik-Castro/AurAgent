@@ -23,6 +23,8 @@ export async function runReActLoop(
     ctx.config.sterileLoopThreshold,
   );
   let lastOutput = '';
+  let explainer: Explainer | undefined;
+  let lastWriteGateFailed = false;
 
   while (iterations < ctx.config.maxIterations) {
     ctx.eventBus.emit('iteration:started', { iteration: iterations });
@@ -41,6 +43,7 @@ export async function runReActLoop(
       tools,
       iterations,
       display,
+      (e) => { explainer = e; },
     );
 
     ctx.eventBus.emit('model:request_finished', {
@@ -73,17 +76,29 @@ export async function runReActLoop(
           callResult.output,
           callResult.toolName,
         );
+        if (explainer) {
+          explainer.onToolResult(callResult.toolName, callResult.output);
+        }
+        if (callResult.output.startsWith('Validação pós-escrita falhou')) {
+          lastWriteGateFailed = true;
+        } else if (
+          callResult.toolName === 'WriteFile' &&
+          callResult.output.startsWith('Arquivo escrito:')
+        ) {
+          lastWriteGateFailed = false;
+        }
       }
     }
 
     if (response.finishReason === 'stop' && !response.toolCalls?.length) {
+      const status = lastWriteGateFailed ? 'failed_validation' : 'success';
       ctx.eventBus.emit('task:completed', {
-        status: 'success',
+        status,
         iterations,
         duration: Date.now() - startTime,
       });
       return {
-        status: 'success',
+        status,
         output: response.content,
         iterations,
         durationMs: Date.now() - startTime,
@@ -126,6 +141,7 @@ async function streamResponse(
   tools: ToolDefinition[],
   iteration: number,
   display?: StreamDisplay,
+  onExplainer?: (e: Explainer) => void,
 ): Promise<GenerateResponse> {
   const useDisplay = !!display;
   const useExplainer = !display && ctx.config.explain;
@@ -135,6 +151,7 @@ async function streamResponse(
   }
 
   const sink = display ?? new Explainer(true);
+  if (sink instanceof Explainer) onExplainer?.(sink);
   sink.startIteration(iteration);
 
   const stream = ctx.modelProvider.stream({ messages, tools });
@@ -216,9 +233,18 @@ async function executeToolCalls(
 }
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
+const GATE_EXTENSIONS = new Set([
+  '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs',
+]);
 
 function isTypeScriptFile(path: string): boolean {
   return TS_EXTENSIONS.has(path.slice(path.lastIndexOf('.')));
+}
+
+function getExtension(path: string): string {
+  const dot = path.lastIndexOf('.');
+  if (dot < 0) return '';
+  return path.slice(dot).toLowerCase();
 }
 
 async function runPreCommitGate(
@@ -226,20 +252,23 @@ async function runPreCommitGate(
   ctx: AgentContext,
 ): Promise<{ passed: boolean; output: string }> {
   const errors: string[] = [];
+  const escapedPath = path.replace(/'/g, "'\\''");
 
   const lintResult = await ctx.processRunner.run({
-    command: `deno lint "${path}"`,
+    command: `deno lint '${escapedPath}'`,
+    cwd: ctx.config.workingDir,
   });
   if (lintResult.code !== 0) {
-    errors.push(`Lint:\n${lintResult.stderr}`);
+    errors.push(`Lint:\n${lintResult.stderr || lintResult.stdout}`);
   }
 
   if (isTypeScriptFile(path)) {
     const checkResult = await ctx.processRunner.run({
-      command: `deno check "${path}"`,
+      command: `deno check '${escapedPath}'`,
+      cwd: ctx.config.workingDir,
     });
     if (checkResult.code !== 0) {
-      errors.push(`Type check:\n${checkResult.stderr}`);
+      errors.push(`Type check:\n${checkResult.stderr || checkResult.stdout}`);
     }
   }
 
@@ -271,6 +300,26 @@ async function executeOneToolCall(
     args: call.args,
     riskLevel: handler.riskLevel,
   });
+
+  if (call.name === 'WriteFile' && call.args.path) {
+    const wfPath = call.args.path as string;
+    if (typeof wfPath !== 'string' || wfPath.trim() === '') {
+      return {
+        callId: call.id,
+        output: 'Erro: path inválido ou fora do workspace: path vazio',
+        toolName: call.name,
+      };
+    }
+    try {
+      await ctx.workspace.exists(wfPath);
+    } catch {
+      return {
+        callId: call.id,
+        output: `Erro: path inválido ou fora do workspace: ${wfPath}`,
+        toolName: call.name,
+      };
+    }
+  }
 
   if (call.name === 'WriteFile' && ctx.checkpointManager && call.args.path) {
     await ctx.checkpointManager.saveBeforeWrite(
@@ -335,7 +384,8 @@ async function executeOneToolCall(
     if (
       call.name === 'WriteFile' &&
       ctx.config.preCommitGate &&
-      result.output.startsWith('Arquivo escrito')
+      result.output.startsWith('Arquivo escrito') &&
+      GATE_EXTENSIONS.has(getExtension(call.args.path as string))
     ) {
       const gateResult = await runPreCommitGate(
         call.args.path as string,
@@ -343,9 +393,13 @@ async function executeOneToolCall(
       );
       if (!gateResult.passed) {
         await ctx.checkpointManager?.restoreLast(ctx.workspace);
+        ctx.eventBus.emit('tool:gate_failed', {
+          path: call.args.path as string,
+          output: gateResult.output,
+        });
         return {
           callId: call.id,
-          output: `Validação pós-escrita falhou — arquivo revertido.\n${gateResult.output}`,
+          output: `Validação pós-escrita falhou — alteração revertida.\n${call.args.path}\n${gateResult.output}`,
           toolName: call.name,
         };
       }

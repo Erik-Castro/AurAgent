@@ -9,6 +9,7 @@ import type {
 } from '../../core/types.ts';
 import type { ModelProvider } from '../../ports/model-provider.ts';
 import type { ProviderConfig } from './config.ts';
+import { parseToolArguments } from './parse-tool-args.ts';
 
 export class OllamaProvider implements ModelProvider {
   constructor(private config: ProviderConfig) {}
@@ -90,15 +91,18 @@ export class OllamaProvider implements ModelProvider {
                 if (chunk.done) {
                   if (chunk.message?.tool_calls) {
                     for (const tc of chunk.message.tool_calls) {
+                      let args: Record<string, unknown>;
+                      try {
+                        args = parseToolArguments(tc.function.arguments);
+                      } catch {
+                        args = {};
+                      }
                       controller.enqueue({
                         type: 'tool_call',
                         call: {
                           id: crypto.randomUUID(),
                           name: tc.function.name,
-                          args: tc.function.arguments as Record<
-                            string,
-                            unknown
-                          >,
+                          args,
                         },
                       });
                     }
@@ -189,14 +193,14 @@ export class OllamaProvider implements ModelProvider {
     const content = (message?.content as string) ?? '';
     const rawToolCalls = message?.tool_calls as
       | Array<{
-        function: { name: string; arguments: Record<string, unknown> };
+        function: { name: string; arguments: unknown };
       }>
       | undefined;
 
     const toolCalls: ToolCall[] | undefined = rawToolCalls?.map((tc) => ({
       id: crypto.randomUUID(),
       name: tc.function.name,
-      args: tc.function.arguments as Record<string, unknown>,
+      args: parseToolArguments(tc.function.arguments),
     }));
 
     return {

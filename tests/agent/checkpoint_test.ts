@@ -83,7 +83,7 @@ Deno.test('CheckpointManager arquivo novo tem conteúdo vazio', async () => {
   const id = await cm.saveBeforeWrite('novo.ts', 2, ws);
   await ws.write('novo.ts', 'conteudo');
   await cm.restore(id, ws);
-  assertEquals(await ws.read('novo.ts'), ''); // volta a vazio
+  assertEquals(await ws.exists('novo.ts'), false); // arquivo novo removido, não vazio
 
   await cm.cleanup();
 });
@@ -91,4 +91,74 @@ Deno.test('CheckpointManager arquivo novo tem conteúdo vazio', async () => {
 Deno.test('CheckpointManager cleanup não lança se diretório não existe', async () => {
   const cm = new CheckpointManager('/tmp/aur-nonexistent-dir');
   await cm.cleanup(); // não deve lançar
+});
+
+// --- SPEC-OC-001 §3.1.4: Testes obrigatórios ---
+
+Deno.test('restore_new_file_removes', async () => {
+  const ws = new MemoryWorkspace();
+  const cm = new CheckpointManager(testDir);
+
+  await cm.saveBeforeWrite('newfile.ts', 1, ws);
+  await ws.write('newfile.ts', 'abc');
+  assertEquals(await ws.exists('newfile.ts'), true);
+
+  await cm.restoreLast(ws);
+  assertEquals(await ws.exists('newfile.ts'), false);
+
+  await cm.cleanup();
+});
+
+Deno.test('restore_existing_restores_bytes', async () => {
+  const ws = new MemoryWorkspace();
+  await ws.write('old.ts', 'old');
+  const cm = new CheckpointManager(testDir);
+
+  await cm.saveBeforeWrite('old.ts', 1, ws);
+  await ws.write('old.ts', 'new');
+  await cm.restoreLast(ws);
+  assertEquals(await ws.read('old.ts'), 'old');
+
+  await cm.cleanup();
+});
+
+Deno.test('restore_existing_empty_original', async () => {
+  const ws = new MemoryWorkspace();
+  await ws.write('empty.ts', '');
+  const cm = new CheckpointManager(testDir);
+
+  await cm.saveBeforeWrite('empty.ts', 1, ws);
+  await ws.write('empty.ts', 'x');
+  await cm.restoreLast(ws);
+  assertEquals(await ws.exists('empty.ts'), true);
+  assertEquals(await ws.read('empty.ts'), '');
+
+  await cm.cleanup();
+});
+
+Deno.test('save_sets_existed_false', async () => {
+  const ws = new MemoryWorkspace();
+  const cm = new CheckpointManager(testDir);
+
+  await cm.saveBeforeWrite('nonexistent.ts', 1, ws);
+  // restore uses the entry's existed flag; verify by checking restore behavior
+  // (existed=false + restoreLast should remove the file, not write empty)
+  await ws.write('nonexistent.ts', 'temp');
+  await cm.restoreLast(ws);
+  assertEquals(await ws.exists('nonexistent.ts'), false);
+
+  await cm.cleanup();
+});
+
+Deno.test('save_sets_existed_true', async () => {
+  const ws = new MemoryWorkspace();
+  await ws.write('exists.ts', 'data');
+  const cm = new CheckpointManager(testDir);
+
+  await cm.saveBeforeWrite('exists.ts', 1, ws);
+  await ws.write('exists.ts', 'modified');
+  await cm.restoreLast(ws);
+  assertEquals(await ws.read('exists.ts'), 'data');
+
+  await cm.cleanup();
 });

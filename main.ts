@@ -1,4 +1,10 @@
-import { DEFAULT_MODEL } from './src/core/constants.ts';
+import {
+  DEFAULT_MODEL,
+  DEFAULT_OUTPUT_RESERVE_TOKENS,
+  DEFAULT_TOOL_PROTOCOL_MODE,
+  DEFAULT_HYBRID_NATIVE_TOOLS_MIN_CTX,
+  DEFAULT_COMPACT_CATALOG_MAX_TOKENS,
+} from './src/core/constants.ts';
 import type { AgentConfig, PermissionLevel } from './src/core/types.ts';
 import { loadSecurityRules } from './src/core/security-config.ts';
 import { Agent } from './src/agent/agent.ts';
@@ -27,6 +33,11 @@ const config: AgentConfig = {
   summaryTokenThreshold: 2_000,
   maxOutputChars: 100_000,
   preCommitGate: true,
+  numCtx: null,
+  outputReserveTokens: DEFAULT_OUTPUT_RESERVE_TOKENS,
+  toolProtocolMode: DEFAULT_TOOL_PROTOCOL_MODE,
+  hybridNativeToolsMinCtx: DEFAULT_HYBRID_NATIVE_TOOLS_MIN_CTX,
+  compactCatalogMaxTokens: DEFAULT_COMPACT_CATALOG_MAX_TOKENS,
 };
 
 function parseFlags(): {
