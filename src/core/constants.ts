@@ -25,3 +25,14 @@ export const DEFAULT_OUTPUT_RESERVE_TOKENS = 512;
 export const DEFAULT_TOOL_PROTOCOL_MODE = 'hybrid' as const;
 export const DEFAULT_HYBRID_NATIVE_TOOLS_MIN_CTX = 16384;
 export const DEFAULT_COMPACT_CATALOG_MAX_TOKENS = 600;
+export const DEFAULT_FALLBACK_NUM_CTX = 4096;
+export const DEFAULT_MAX_TOKENS_OUT = 4096;
+
+export const TOOL_PROTOCOL_BLOCK = `## Tool protocol
+You may call tools. When you need a tool, respond with ONLY a JSON object:
+{"name":"<ToolName>","arguments":{...}}
+Rules:
+- <ToolName> must be one of the tools listed under "## Tools".
+- Do not claim you cannot read or write files; use ReadFile or WriteFile.
+- Prefer relative paths under the working directory.
+- If you can finish without a tool, answer in plain text without JSON tool objects.`;

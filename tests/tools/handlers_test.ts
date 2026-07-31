@@ -1,4 +1,4 @@
-import { assertEquals, assert } from '@std/assert';
+import { assert, assertEquals } from '@std/assert';
 import type { ToolCall } from '../../src/core/types.ts';
 import type { ToolContext } from '../../src/tools/handler.ts';
 import * as handlers from '../../src/tools/implementations.ts';
@@ -25,10 +25,18 @@ function createMockContext(overrides?: Partial<ToolContext>): ToolContext {
       once: () => {},
     },
     memoryStore: {
-      get() { return Promise.resolve(null); },
-      set() { return Promise.resolve(); },
-      delete() { return Promise.resolve(); },
-      list() { return Promise.resolve([]); },
+      get() {
+        return Promise.resolve(null);
+      },
+      set() {
+        return Promise.resolve();
+      },
+      delete() {
+        return Promise.resolve();
+      },
+      list() {
+        return Promise.resolve([]);
+      },
     },
     config: {
       maxIterations: 15,
@@ -40,6 +48,11 @@ function createMockContext(overrides?: Partial<ToolContext>): ToolContext {
       sterileLoopThreshold: 3,
       summaryTokenThreshold: 2_000,
       maxOutputChars: 100_000,
+      numCtx: null,
+      outputReserveTokens: 512,
+      toolProtocolMode: 'hybrid',
+      hybridNativeToolsMinCtx: 16384,
+      compactCatalogMaxTokens: 600,
     },
     readInput: () => Promise.resolve('resposta mock'),
     ...overrides,

@@ -1,4 +1,4 @@
-import type { ToolCall, GenerateResponse } from '../core/types.ts';
+import type { GenerateResponse, ToolCall } from '../core/types.ts';
 
 const BOLD = '\x1b[1m';
 const CYAN = '\x1b[36m';
@@ -33,6 +33,12 @@ export class Explainer {
     console.log(
       `\n${BOLD}${YELLOW}▶ ${call.name}(${args})${RESET}`,
     );
+  }
+
+  onPseudoToolCall(call: ToolCall): void {
+    if (!this.enabled) return;
+    console.log(`${BOLD}${YELLOW}  ── pseudo-tool ──${RESET}`);
+    this.onToolCall(call);
   }
 
   onToolResult(toolName: string, output: string, maxChars = 100_000): void {

@@ -134,26 +134,59 @@ export class OllamaProvider implements ModelProvider {
     request: GenerateRequest | StreamRequest,
     stream: boolean,
   ): Record<string, unknown> {
+    const options: Record<string, unknown> = {
+      temperature: 'temperature' in request
+        ? request.temperature ?? this.config.defaultTemperature ?? 0.7
+        : this.config.defaultTemperature ?? 0.7,
+      num_predict: 'maxTokens' in request
+        ? request.maxTokens ?? this.config.defaultMaxTokens ?? 4096
+        : this.config.defaultMaxTokens ?? 4096,
+    };
+    if (request.numCtx !== undefined && request.numCtx > 0) {
+      options.num_ctx = request.numCtx;
+    }
+
     return {
       model: this.config.model,
       messages: this.formatMessages(request.messages),
       stream,
-      options: {
-        temperature:
-          'temperature' in request
-            ? request.temperature ?? this.config.defaultTemperature ?? 0.7
-            : this.config.defaultTemperature ?? 0.7,
-        num_predict:
-          'maxTokens' in request
-            ? request.maxTokens ?? this.config.defaultMaxTokens ?? 4096
-            : this.config.defaultMaxTokens ?? 4096,
-      },
+      options,
       ...('tools' in request &&
-      request.tools &&
-      request.tools.length > 0
+          request.tools &&
+          request.tools.length > 0
         ? { tools: this.formatTools(request.tools) }
         : {}),
     };
+  }
+
+  async getContextWindow(): Promise<number | null> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2000);
+    try {
+      const response = await fetch(`${this.config.baseUrl}/api/show`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: this.config.model }),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return null;
+      }
+      const data = await response.json();
+      const modelInfo = data.model_info as Record<string, unknown> | undefined;
+      const params = data.parameters as Record<string, unknown> | undefined;
+      const raw = modelInfo?.['llama.context_length'] ??
+        params?.num_ctx ??
+        data.num_ctx ??
+        data.context_length;
+      if (typeof raw === 'number' && raw >= 512) return raw;
+      return null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private formatMessages(messages: Message[]): Record<string, unknown>[] {

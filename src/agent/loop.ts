@@ -3,16 +3,24 @@ import type { WorkingMemory } from './memory.ts';
 import type { AgentResult } from './agent.ts';
 import { SterileLoopDetector } from './sterile-detector.ts';
 import { Explainer } from './explainer.ts';
+import { normalizeModelResponse } from './normalize-response.ts';
+import {
+  maxTokensOut,
+  resolveToolProtocolMode,
+  shouldSendNativeTools,
+  trimMessagesToBudget,
+} from './token-budget.ts';
+import { DEFAULT_FALLBACK_NUM_CTX } from '../core/constants.ts';
 import type {
+  GenerateResponse,
+  StreamDisplay,
   ToolCall,
   ToolDefinition,
   ToolResult,
-  GenerateResponse,
-  StreamDisplay,
 } from '../core/types.ts';
 
 export async function runReActLoop(
-  _task: string,
+  task: string,
   ctx: AgentContext,
   memory: WorkingMemory,
   display?: StreamDisplay,
@@ -25,6 +33,19 @@ export async function runReActLoop(
   let lastOutput = '';
   let explainer: Explainer | undefined;
   let lastWriteGateFailed = false;
+  let anyToolExecuted = false;
+
+  const knownToolNames = new Set(ctx.toolHandlers.keys());
+  const mode = resolveToolProtocolMode(ctx.config.toolProtocolMode, Deno.env.toObject());
+  const numCtx = ctx.config.numCtx ?? DEFAULT_FALLBACK_NUM_CTX;
+  const promptBudget = numCtx - ctx.config.outputReserveTokens;
+  const sendNativeTools = shouldSendNativeTools(
+    mode,
+    numCtx,
+    ctx.config.hybridNativeToolsMinCtx,
+  );
+  const maxTokens = maxTokensOut(ctx.config.outputReserveTokens);
+  const requestNumCtx = numCtx;
 
   while (iterations < ctx.config.maxIterations) {
     ctx.eventBus.emit('iteration:started', { iteration: iterations });
@@ -35,15 +56,36 @@ export async function runReActLoop(
       tools.push(handler.definition);
     }
 
+    const trimmed = trimMessagesToBudget(
+      memory.getMessages(),
+      promptBudget,
+      task,
+      ctx.config.summaryTokenThreshold,
+    );
+
+    if (trimmed.exceeded) {
+      const msg = `Erro: prompt excede orçamento de contexto (num_ctx=${numCtx}).`;
+      ctx.eventBus.emit('task:completed', { status: 'error', iterations });
+      return {
+        status: 'error',
+        output: msg,
+        iterations,
+        durationMs: Date.now() - startTime,
+      };
+    }
+
     ctx.eventBus.emit('model:request_started', { iteration: iterations });
 
     const response = await streamResponse(
       ctx,
-      memory.getMessages(),
-      tools,
+      trimmed.messages,
+      sendNativeTools ? tools : [],
       iterations,
       display,
-      (e) => { explainer = e; },
+      (e) => {
+        explainer = e;
+      },
+      { maxTokens, numCtx: requestNumCtx },
     );
 
     ctx.eventBus.emit('model:request_finished', {
@@ -51,21 +93,32 @@ export async function runReActLoop(
       finishReason: response.finishReason,
     });
 
-    if (response.finishReason === 'error') {
+    const normalized = normalizeModelResponse(response, knownToolNames);
+
+    if (normalized.finishReason === 'error') {
       return {
         status: 'error',
-        output: response.content || 'LLM retornou um erro',
+        output: normalized.content || 'LLM retornou um erro',
         iterations,
         durationMs: Date.now() - startTime,
       };
     }
 
-    memory.addAssistant(response.content, response.toolCalls);
-    if (response.content) lastOutput = response.content;
+    const pseudoUsed = (response.toolCalls?.length ?? 0) === 0 &&
+      (normalized.toolCalls?.length ?? 0) > 0;
 
-    if (response.toolCalls && response.toolCalls.length > 0) {
+    memory.addAssistant(normalized.content, normalized.toolCalls);
+    if (normalized.content) lastOutput = normalized.content;
+
+    if (normalized.toolCalls && normalized.toolCalls.length > 0) {
+      if (pseudoUsed && explainer) {
+        for (const call of normalized.toolCalls) {
+          explainer.onPseudoToolCall(call);
+        }
+      }
+      anyToolExecuted = true;
       const results = await executeToolCalls(
-        response.toolCalls,
+        normalized.toolCalls,
         iterations,
         ctx,
         sterileDetector,
@@ -90,7 +143,15 @@ export async function runReActLoop(
       }
     }
 
-    if (response.finishReason === 'stop' && !response.toolCalls?.length) {
+    if (normalized.finishReason === 'stop' && !normalized.toolCalls?.length) {
+      if (isStrictEmptyFinal(task, normalized, anyToolExecuted)) {
+        return {
+          status: 'error',
+          output: 'Erro: modelo encerrou sem resposta e sem tool calls',
+          iterations,
+          durationMs: Date.now() - startTime,
+        };
+      }
       const status = lastWriteGateFailed ? 'failed_validation' : 'success';
       ctx.eventBus.emit('task:completed', {
         status,
@@ -99,20 +160,20 @@ export async function runReActLoop(
       });
       return {
         status,
-        output: response.content,
+        output: normalized.content,
         iterations,
         durationMs: Date.now() - startTime,
       };
     }
 
-    if (response.finishReason === 'length') {
+    if (normalized.finishReason === 'length') {
       ctx.eventBus.emit('task:completed', {
         status: 'truncated',
         iterations,
       });
       return {
         status: 'truncated',
-        output: response.content,
+        output: normalized.content,
         iterations,
         durationMs: Date.now() - startTime,
       };
@@ -135,6 +196,17 @@ export async function runReActLoop(
   };
 }
 
+function isStrictEmptyFinal(
+  task: string,
+  response: GenerateResponse,
+  anyToolExecuted: boolean,
+): boolean {
+  if (Deno.env.get('AUR_STRICT_EMPTY_FINAL') !== '1') return false;
+  if (task.length === 0) return false;
+  if (anyToolExecuted) return false;
+  return (response.content ?? '').trim() === '';
+}
+
 async function streamResponse(
   ctx: AgentContext,
   messages: import('../core/types.ts').Message[],
@@ -142,19 +214,21 @@ async function streamResponse(
   iteration: number,
   display?: StreamDisplay,
   onExplainer?: (e: Explainer) => void,
+  budget?: { maxTokens: number; numCtx: number },
 ): Promise<GenerateResponse> {
   const useDisplay = !!display;
   const useExplainer = !display && ctx.config.explain;
+  const request = { messages, tools, ...budget };
 
   if (!useDisplay && !useExplainer) {
-    return await ctx.modelProvider.generate({ messages, tools });
+    return await ctx.modelProvider.generate(request);
   }
 
   const sink = display ?? new Explainer(true);
   if (sink instanceof Explainer) onExplainer?.(sink);
   sink.startIteration(iteration);
 
-  const stream = ctx.modelProvider.stream({ messages, tools });
+  const stream = ctx.modelProvider.stream(request);
   const reader = stream.getReader();
 
   while (true) {
@@ -217,9 +291,7 @@ async function executeToolCalls(
   for (let i = 0; i < safe.length; i += ctx.config.concurrency) {
     const batch = safe.slice(i, i + ctx.config.concurrency);
     const batchResults = await Promise.all(
-      batch.map((call) =>
-        executeOneToolCall(call, iteration, ctx, sterileDetector)
-      ),
+      batch.map((call) => executeOneToolCall(call, iteration, ctx, sterileDetector)),
     );
     results.push(...batchResults);
   }
@@ -234,7 +306,14 @@ async function executeToolCalls(
 
 const TS_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts']);
 const GATE_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs',
+  '.ts',
+  '.tsx',
+  '.mts',
+  '.cts',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
 ]);
 
 function isTypeScriptFile(path: string): boolean {
@@ -329,8 +408,7 @@ async function executeOneToolCall(
     );
   }
 
-  const needsApproval =
-    (handler.riskLevel === 'medium' || handler.riskLevel === 'high') &&
+  const needsApproval = (handler.riskLevel === 'medium' || handler.riskLevel === 'high') &&
     ctx.config.permissions === 'default';
 
   if (needsApproval) {
@@ -350,8 +428,7 @@ async function executeOneToolCall(
       if (!decision.approved) {
         return {
           callId: call.id,
-          output:
-            `Ação rejeitada pelo usuário: ${decision.reason ?? 'sem motivo'}`,
+          output: `Ação rejeitada pelo usuário: ${decision.reason ?? 'sem motivo'}`,
           toolName: call.name,
         };
       }
@@ -365,8 +442,7 @@ async function executeOneToolCall(
   if (ctx.config.dryRun && handler.riskLevel !== 'low') {
     return {
       callId: call.id,
-      output:
-        `[DRY-RUN] Simulado: ${call.name}(${JSON.stringify(call.args)})`,
+      output: `[DRY-RUN] Simulado: ${call.name}(${JSON.stringify(call.args)})`,
       toolName: call.name,
     };
   }
@@ -399,7 +475,8 @@ async function executeOneToolCall(
         });
         return {
           callId: call.id,
-          output: `Validação pós-escrita falhou — alteração revertida.\n${call.args.path}\n${gateResult.output}`,
+          output:
+            `Validação pós-escrita falhou — alteração revertida.\n${call.args.path}\n${gateResult.output}`,
           toolName: call.name,
         };
       }

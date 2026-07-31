@@ -5,6 +5,8 @@ import { CheckpointManager } from './checkpoint.ts';
 import { buildSessionSummary } from './summarizer.ts';
 import { WorkingMemory } from './memory.ts';
 import { runReActLoop } from './loop.ts';
+import { resolveNumCtx } from './token-budget.ts';
+import type { ToolDefinition } from '../core/types.ts';
 
 export interface AgentResult {
   status: 'success' | 'error' | 'max_iterations' | 'truncated' | 'failed_validation';
@@ -21,8 +23,13 @@ export class Agent {
   async run(task: string): Promise<AgentResult> {
     this.ctx.eventBus.emit('task:started', { task });
 
+    await this.resolveNumCtx();
+
     const memory = new WorkingMemory(this.ctx.config);
-    await memory.loadInstructionFiles(this.ctx.workspace);
+    const definitions: ToolDefinition[] = [...this.ctx.toolHandlers.values()].map(
+      (h) => h.definition,
+    );
+    await memory.loadInstructionFiles(this.ctx.workspace, definitions);
     this.ctx.eventBus.emit('memory:loaded', { messageCount: memory.getMessageCount() });
     memory.addUser(task);
 
@@ -55,6 +62,27 @@ export class Agent {
         }
       }
     }
+  }
+
+  private async resolveNumCtx(): Promise<void> {
+    let ollamaShowCtx: number | null = null;
+    if (this.ctx.modelProvider.getContextWindow) {
+      try {
+        ollamaShowCtx = await this.ctx.modelProvider.getContextWindow();
+      } catch {
+        ollamaShowCtx = null;
+      }
+    }
+    const budget = resolveNumCtx(
+      this.ctx.config,
+      Deno.env.toObject(),
+      ollamaShowCtx,
+    );
+    this.ctx.config = {
+      ...this.ctx.config,
+      numCtx: budget.numCtx,
+      outputReserveTokens: budget.outputReserveTokens,
+    };
   }
 
   private applySecurity(): void {

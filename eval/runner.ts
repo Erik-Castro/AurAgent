@@ -74,6 +74,11 @@ async function runScenario(
       summaryTokenThreshold: 2_000,
       maxOutputChars: 100_000,
       preCommitGate: false,
+      numCtx: null,
+      outputReserveTokens: 512,
+      toolProtocolMode: 'hybrid',
+      hybridNativeToolsMinCtx: 16384,
+      compactCatalogMaxTokens: 600,
     };
 
     const ctx = buildEvalContext(agentConfig);
@@ -100,8 +105,7 @@ async function runScenario(
       if (!contentMatched) errors.push('conteúdo esperado não encontrado');
     }
 
-    const isPassed =
-      scenario.expectedStatus === agentResult.status &&
+    const isPassed = scenario.expectedStatus === agentResult.status &&
       (!scenario.checkTest || testPassed) &&
       (!scenario.checkFiles || filesExist) &&
       (!scenario.checkContent || contentMatched);

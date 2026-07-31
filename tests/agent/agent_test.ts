@@ -1,4 +1,4 @@
-import { assertEquals, assert } from '@std/assert';
+import { assert, assertEquals } from '@std/assert';
 import { Agent } from '../../src/agent/agent.ts';
 import type { AgentContext } from '../../src/agent/agent-context.ts';
 import type { AgentConfig } from '../../src/core/types.ts';
@@ -38,6 +38,11 @@ const baseConfig: AgentConfig = {
   sterileLoopThreshold: 3,
   summaryTokenThreshold: 2_000,
   maxOutputChars: 100_000,
+  numCtx: null,
+  outputReserveTokens: 512,
+  toolProtocolMode: 'hybrid',
+  hybridNativeToolsMinCtx: 16384,
+  compactCatalogMaxTokens: 600,
 };
 
 function createMockContext(
@@ -54,10 +59,18 @@ function createMockContext(
     modelProvider,
     eventBus: new InMemoryEventBus(),
     memoryStore: {
-      get() { return Promise.resolve(null); },
-      set() { return Promise.resolve(); },
-      delete() { return Promise.resolve(); },
-      list() { return Promise.resolve([]); },
+      get() {
+        return Promise.resolve(null);
+      },
+      set() {
+        return Promise.resolve();
+      },
+      delete() {
+        return Promise.resolve();
+      },
+      list() {
+        return Promise.resolve([]);
+      },
     },
     toolHandlers: buildToolRegistry().handlers,
     config: baseConfig,
@@ -103,7 +116,9 @@ Deno.test('Agent.run emite evento task:started', async () => {
   });
   const bus = new InMemoryEventBus();
   let startedEvent = false;
-  bus.on('task:started', () => { startedEvent = true; });
+  bus.on('task:started', () => {
+    startedEvent = true;
+  });
 
   const ctx = createMockContext(provider, { eventBus: bus });
   const agent = new Agent(ctx);
@@ -119,7 +134,9 @@ Deno.test('Agent.run emite evento task:completed com success', async () => {
   });
   const bus = new InMemoryEventBus();
   let completedStatus = '';
-  bus.on('task:completed', (e) => { completedStatus = e.data.status as string; });
+  bus.on('task:completed', (e) => {
+    completedStatus = e.data.status as string;
+  });
 
   const ctx = createMockContext(provider, { eventBus: bus });
   const agent = new Agent(ctx);
@@ -138,10 +155,20 @@ Deno.test('Agent.run persiste session summary no memoryStore', async () => {
   let savedValue: Record<string, unknown> = {};
   const ctx = createMockContext(provider, {
     memoryStore: {
-      get() { return Promise.resolve(null); },
-      set(key, value) { savedKey = key; savedValue = value as Record<string, unknown>; return Promise.resolve(); },
-      delete() { return Promise.resolve(); },
-      list() { return Promise.resolve([]); },
+      get() {
+        return Promise.resolve(null);
+      },
+      set(key, value) {
+        savedKey = key;
+        savedValue = value as Record<string, unknown>;
+        return Promise.resolve();
+      },
+      delete() {
+        return Promise.resolve();
+      },
+      list() {
+        return Promise.resolve([]);
+      },
     },
   });
   const agent = new Agent(ctx);

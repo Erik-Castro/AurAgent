@@ -1,4 +1,4 @@
-import { assertEquals, assert } from '@std/assert';
+import { assert, assertEquals } from '@std/assert';
 import { WorkingMemory } from '../../src/agent/memory.ts';
 import { MemoryWorkspace } from '../mock-workspace.ts';
 import type { AgentConfig } from '../../src/core/types.ts';
@@ -13,6 +13,11 @@ const defaultConfig: AgentConfig = {
   sterileLoopThreshold: 3,
   summaryTokenThreshold: 2_000,
   maxOutputChars: 100_000,
+  numCtx: null,
+  outputReserveTokens: 512,
+  toolProtocolMode: 'hybrid',
+  hybridNativeToolsMinCtx: 16384,
+  compactCatalogMaxTokens: 600,
 };
 
 Deno.test('addSystem adiciona mensagem system', () => {

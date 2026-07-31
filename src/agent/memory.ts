@@ -1,14 +1,18 @@
-import type { Message, ToolCall, AgentConfig } from '../core/types.ts';
+import type { AgentConfig, Message, ToolCall, ToolDefinition } from '../core/types.ts';
 import type { Workspace } from '../ports/workspace.ts';
-import { WORKSPACE_INSTRUCTION_FILES } from '../core/constants.ts';
-import { truncateContent, buildAgeSummary } from './summarizer.ts';
+import { TOOL_PROTOCOL_BLOCK, WORKSPACE_INSTRUCTION_FILES } from '../core/constants.ts';
+import { buildCompactToolCatalog } from '../tools/compact-catalog.ts';
+import { buildAgeSummary, truncateContent } from './summarizer.ts';
 
 export class WorkingMemory {
   private messages: Message[] = [];
 
   constructor(private config: AgentConfig) {}
 
-  async loadInstructionFiles(workspace: Workspace): Promise<void> {
+  async loadInstructionFiles(
+    workspace: Workspace,
+    toolDefinitions: ToolDefinition[] = [],
+  ): Promise<void> {
     const parts: string[] = [
       'You are Aur, an autonomous coding agent.',
       `Working directory: ${this.config.workingDir}`,
@@ -39,6 +43,11 @@ export class WorkingMemory {
       }
     }
 
+    parts.push(TOOL_PROTOCOL_BLOCK);
+    parts.push(
+      buildCompactToolCatalog(toolDefinitions, this.config.compactCatalogMaxTokens),
+    );
+
     this.addSystem(parts.join('\n\n'));
   }
 
@@ -64,9 +73,7 @@ export class WorkingMemory {
     toolName?: string,
   ): void {
     const threshold = this.config.summaryTokenThreshold;
-    const finalContent = threshold && threshold > 0
-      ? truncateContent(content, threshold)
-      : content;
+    const finalContent = threshold && threshold > 0 ? truncateContent(content, threshold) : content;
 
     this.messages.push({
       role: 'tool',
@@ -84,9 +91,7 @@ export class WorkingMemory {
     const maxMessages = maxTurns * 2;
     if (this.messages.length <= maxMessages) return;
 
-    const systemMsg = this.messages[0]?.role === 'system'
-      ? this.messages[0]
-      : null;
+    const systemMsg = this.messages[0]?.role === 'system' ? this.messages[0] : null;
     const keep = this.messages.slice(-maxMessages);
     const oldMessages = systemMsg
       ? this.messages.slice(1, -maxMessages)
@@ -97,9 +102,7 @@ export class WorkingMemory {
     const summary = buildAgeSummary(oldMessages);
     const summaryMsg: Message = { role: 'system', content: summary };
 
-    this.messages = systemMsg
-      ? [systemMsg, summaryMsg, ...keep]
-      : [summaryMsg, ...keep];
+    this.messages = systemMsg ? [systemMsg, summaryMsg, ...keep] : [summaryMsg, ...keep];
   }
 
   getMessageCount(): number {

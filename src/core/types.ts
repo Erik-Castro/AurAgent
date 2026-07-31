@@ -47,6 +47,7 @@ export interface GenerateRequest {
   stream?: boolean;
   maxTokens?: number;
   temperature?: number;
+  numCtx?: number;
 }
 
 export interface GenerateResponse {
@@ -60,6 +61,7 @@ export interface StreamRequest {
   tools?: ToolDefinition[];
   maxTokens?: number;
   temperature?: number;
+  numCtx?: number;
 }
 
 export type ModelEvent =
