@@ -10,6 +10,8 @@ const RESET = '\x1b[0m';
 
 export class Explainer {
   private content = '';
+  private thinking = '';
+  private thinkingHeaderShown = false;
   private toolCalls: ToolCall[] = [];
   private finishReason: GenerateResponse['finishReason'] = 'stop';
 
@@ -28,6 +30,7 @@ export class Explainer {
 
   startIteration(n: number): void {
     if (!this.enabled) return;
+    this.thinkingHeaderShown = false;
     console.log(`\n${BOLD}${CYAN}■ Iteração ${n}${RESET}`);
     console.log(`${BOLD}${CYAN}  ── pensamento ──${RESET}`);
   }
@@ -35,6 +38,16 @@ export class Explainer {
   onToken(text: string): void {
     if (!this.enabled) return;
     this.content += text;
+    Deno.stdout.writeSync(new TextEncoder().encode(text));
+  }
+
+  onThinking(text: string): void {
+    if (!this.enabled) return;
+    this.thinking += text;
+    if (!this.thinkingHeaderShown) {
+      this.thinkingHeaderShown = true;
+      console.log(`\n${BOLD}${CYAN}  ── thinking ──${RESET}\n`);
+    }
     Deno.stdout.writeSync(new TextEncoder().encode(text));
   }
 
@@ -81,6 +94,7 @@ export class Explainer {
   getResult(): GenerateResponse {
     return {
       content: this.content,
+      thinking: this.thinking.trim() !== '' ? this.thinking : undefined,
       toolCalls: this.toolCalls.length > 0 ? this.toolCalls : undefined,
       finishReason: this.finishReason,
     };

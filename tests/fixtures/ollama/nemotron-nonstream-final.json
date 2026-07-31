@@ -1,0 +1,10 @@
+{
+  "model": "lfm2.5-thinking:latest",
+  "message": {
+    "role": "assistant",
+    "content": "hi",
+    "thinking": "We are to say \"hi\" in one word. The user asked for a single word, so I just say it."
+  },
+  "done": true,
+  "done_reason": "stop"
+}

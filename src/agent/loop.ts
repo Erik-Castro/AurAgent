@@ -148,7 +148,7 @@ export async function runReActLoop(
     }
 
     if (normalized.finishReason === 'stop' && !normalized.toolCalls?.length) {
-      if (isStrictEmptyFinal(task, normalized, anyToolExecuted)) {
+      if (isEmptyFinal(task, normalized, anyToolExecuted)) {
         return {
           status: 'error',
           output: 'Erro: modelo encerrou sem resposta e sem tool calls',
@@ -355,7 +355,7 @@ export async function runReActLoopWithState(
 
     if (normalized.finishReason === 'stop') {
       state = applyAssistantFinal(state, normalized.content, ctx.config);
-      if (isStrictEmptyFinal(task, normalized, anyToolExecuted)) {
+      if (isEmptyFinal(task, normalized, anyToolExecuted)) {
         return {
           status: 'error',
           output: 'Erro: modelo encerrou sem resposta e sem tool calls',
@@ -401,14 +401,15 @@ export async function runReActLoopWithState(
   };
 }
 
-function isStrictEmptyFinal(
+function isEmptyFinal(
   task: string,
   response: GenerateResponse,
   anyToolExecuted: boolean,
 ): boolean {
-  if (Deno.env.get('AUR_STRICT_EMPTY_FINAL') !== '1') return false;
-  if (task.length === 0) return false;
+  if (Deno.env.get('AUR_ALLOW_EMPTY_FINAL') === '1') return false;
+  if (task.trim().length === 0) return false;
   if (anyToolExecuted) return false;
+  if ((response.toolCalls?.length ?? 0) > 0) return false;
   return (response.content ?? '').trim() === '';
 }
 
@@ -444,6 +445,9 @@ async function streamResponse(
       case 'token':
         sink.onToken(value.text);
         break;
+      case 'thinking':
+        if (sink.onThinking) sink.onThinking(value.text);
+        break;
       case 'tool_call':
         sink.onToolCall(value.call);
         break;
@@ -458,12 +462,19 @@ async function streamResponse(
 
   if (useDisplay) (sink as StreamDisplay).flush();
 
-  if (sink instanceof Explainer) return sink.getResult();
-
-  return {
+  const raw = sink.getResult?.() ?? {
     content: '',
     toolCalls: undefined,
-    finishReason: 'stop',
+    finishReason: 'stop' as const,
+  };
+  const content = (raw.content ?? '').trim() !== ''
+    ? raw.content
+    : (raw.thinking ?? '');
+  return {
+    content,
+    thinking: raw.thinking,
+    toolCalls: raw.toolCalls,
+    finishReason: raw.finishReason,
   };
 }
 

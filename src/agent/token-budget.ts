@@ -15,6 +15,7 @@ export function maxTokensOut(
 export interface NumCtxConfig {
   numCtx: number | null;
   outputReserveTokens: number;
+  model?: string;
 }
 
 export function resolveNumCtx(
@@ -37,6 +38,8 @@ export function resolveNumCtx(
     numCtx = config.numCtx;
   } else if (ollamaShowCtx !== null && ollamaShowCtx >= min && ollamaShowCtx <= max) {
     numCtx = ollamaShowCtx;
+  } else if (typeof config.model === 'string' && config.model.includes(':cloud')) {
+    numCtx = 32768;
   } else {
     numCtx = 4096;
   }

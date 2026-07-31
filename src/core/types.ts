@@ -52,6 +52,7 @@ export interface GenerateRequest {
 
 export interface GenerateResponse {
   content: string;
+  thinking?: string;
   toolCalls?: ToolCall[];
   finishReason: 'stop' | 'tool_calls' | 'length' | 'error';
 }
@@ -66,6 +67,7 @@ export interface StreamRequest {
 
 export type ModelEvent =
   | { type: 'token'; text: string }
+  | { type: 'thinking'; text: string }
   | { type: 'tool_call'; call: ToolCall }
   | { type: 'done'; finishReason: GenerateResponse['finishReason'] }
   | { type: 'error'; message: string };
@@ -73,10 +75,12 @@ export type ModelEvent =
 export interface StreamDisplay {
   startIteration(n: number): void;
   onToken(text: string): void;
+  onThinking?(text: string): void;
   onToolCall(call: ToolCall): void;
   onDone(finishReason: GenerateResponse['finishReason']): void;
   onError(message: string): void;
   flush(): void;
+  getResult?(): GenerateResponse;
 }
 
 export type PermissionLevel = 'default' | 'approve-all' | 'readonly';
@@ -112,4 +116,6 @@ export interface AgentConfig {
   maxPlanSteps: number;
   maxArtifactsInPrompt: number;
   useExecutionState: boolean;
+  // SPEC-OC-004
+  includeThinkingInContent?: boolean;
 }

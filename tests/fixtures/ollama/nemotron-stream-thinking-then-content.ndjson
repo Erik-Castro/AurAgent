@@ -1,0 +1,18 @@
+{"message":{"role":"assistant","content":"","thinking":"The"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" user"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" wants"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" a"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" file"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" named"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" helloworld.js"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" so"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" write"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" it"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" now"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":"."},"done":false}
+{"message":{"role":"assistant","content":"Here"},"done":false}
+{"message":{"role":"assistant","content":" is"},"done":false}
+{"message":{"role":"assistant","content":" the"},"done":false}
+{"message":{"role":"assistant","content":" file"},"done":false}
+{"message":{"role":"assistant","content":"."},"done":false}
+{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}

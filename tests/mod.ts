@@ -22,5 +22,6 @@ import './adapters/deno-workspace_test.ts';
 import './adapters/restricted-commands_test.ts';
 import './adapters/parse-tool-args_test.ts';
 import './adapters/providers-ollama-openai_test.ts';
+import './adapters/ollama-stream_test.ts';
 import './adapters/providers-anthropic-gemini_test.ts';
 import './adapters/providers-factory_test.ts';

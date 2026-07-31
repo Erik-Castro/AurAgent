@@ -61,6 +61,16 @@ Deno.test('resolveNumCtx: default 4096 se tudo null', () => {
   assertEquals(result.promptBudget, 4096 - 512);
 });
 
+Deno.test('resolveNumCtx: model :cloud sem numCtx → 32768', () => {
+  const result = resolveNumCtx(
+    { numCtx: null, outputReserveTokens: 512, model: 'anthropic/claude-sonnet-4-5:cloud' },
+    {},
+    null,
+  );
+  assertEquals(result.numCtx, 32768);
+  assertEquals(result.promptBudget, 32768 - 512);
+});
+
 Deno.test('resolveNumCtx: adjust outputReserve se budget < 1024', () => {
   const result = resolveNumCtx(
     { numCtx: 1024, outputReserveTokens: 512 },

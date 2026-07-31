@@ -293,3 +293,65 @@ Deno.test('Agent.run com tool_calls repetidos detecta sterile loop', async () =>
   assertEquals(result.status, 'error');
   assert(result.output.includes('estéril') || result.iterations > 0);
 });
+
+Deno.test('T6: empty final (sem content/thinking/tools) → error por default', async () => {
+  const provider = new MockModelProvider({
+    content: '',
+    finishReason: 'stop',
+  });
+  const ctx = createMockContext(provider);
+  const agent = new Agent(ctx);
+
+  const result = await agent.run('tarefa não vazia');
+  assertEquals(result.status, 'error');
+  assert(result.output.startsWith('Erro: modelo encerrou'));
+});
+
+Deno.test('T7: AUR_ALLOW_EMPTY_FINAL=1 restaura success vazio', async () => {
+  const previous = Deno.env.get('AUR_ALLOW_EMPTY_FINAL');
+  Deno.env.set('AUR_ALLOW_EMPTY_FINAL', '1');
+  try {
+    const provider = new MockModelProvider({
+      content: '',
+      finishReason: 'stop',
+    });
+    const ctx = createMockContext(provider);
+    const agent = new Agent(ctx);
+
+    const result = await agent.run('tarefa não vazia');
+    assertEquals(result.status, 'success');
+  } finally {
+    if (previous === undefined) {
+      Deno.env.delete('AUR_ALLOW_EMPTY_FINAL');
+    } else {
+      Deno.env.set('AUR_ALLOW_EMPTY_FINAL', previous);
+    }
+  }
+});
+
+Deno.test('T8: stream só thinking (sem content) → success com conteúdo efetivo', async () => {
+  class ThinkingStreamProvider extends MockModelProvider {
+    override stream(_request: StreamRequest): ReadableStream<ModelEvent> {
+      return new ReadableStream({
+        start(controller) {
+          controller.enqueue({
+            type: 'thinking',
+            text: 'raciocínio interno do modelo',
+          });
+          controller.enqueue({ type: 'done', finishReason: 'stop' });
+          controller.close();
+        },
+      });
+    }
+  }
+
+  const provider = new ThinkingStreamProvider({ content: '', finishReason: 'stop' });
+  const ctx = createMockContext(provider, {
+    config: { ...baseConfig, explain: true },
+  });
+  const agent = new Agent(ctx);
+
+  const result = await agent.run('tarefa não vazia');
+  assertEquals(result.status, 'success');
+  assert(result.output.includes('raciocínio interno do modelo'));
+});

@@ -4,4 +4,5 @@ export interface ProviderConfig {
   model: string;
   defaultMaxTokens?: number;
   defaultTemperature?: number;
+  includeThinkingInContent?: boolean;
 }

@@ -15,6 +15,8 @@ import {
 
 export class StreamDisplayImpl implements StreamDisplay {
   private content = '';
+  private responseContent = '';
+  private responseThinking = '';
   private toolCalls: ToolCall[] = [];
   private finishReason: GenerateResponse['finishReason'] = 'stop';
 
@@ -22,6 +24,8 @@ export class StreamDisplayImpl implements StreamDisplay {
 
   startIteration(n: number): void {
     this.content = '';
+    this.responseContent = '';
+    this.responseThinking = '';
     this.toolCalls = [];
     this.finishReason = 'stop';
     this.buffer.push('');
@@ -33,6 +37,11 @@ export class StreamDisplayImpl implements StreamDisplay {
 
   onToken(text: string): void {
     this.content += text;
+    this.responseContent += text;
+  }
+
+  onThinking(text: string): void {
+    this.responseThinking += text;
   }
 
   flush(): void {
@@ -66,5 +75,14 @@ export class StreamDisplayImpl implements StreamDisplay {
     this.flush();
     this.finishReason = 'error';
     this.buffer.push(` ${RED}${ITEM_ICON} [ERRO] ${message}${RESET}`);
+  }
+
+  getResult(): GenerateResponse {
+    return {
+      content: this.responseContent,
+      thinking: this.responseThinking.trim() !== '' ? this.responseThinking : undefined,
+      toolCalls: this.toolCalls.length > 0 ? this.toolCalls : undefined,
+      finishReason: this.finishReason,
+    };
   }
 }

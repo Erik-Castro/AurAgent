@@ -1,0 +1,11 @@
+{"message":{"role":"assistant","content":"","thinking":"We"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" are"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" to"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" say"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" hi"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" in"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" one"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":" word"},"done":false}
+{"message":{"role":"assistant","content":"","thinking":", so"},"done":false}
+{"message":{"role":"assistant","content":"Hi","thinking":" we just say it."},"done":false}
+{"message":{"role":"assistant","content":""},"done":true,"done_reason":"stop"}
