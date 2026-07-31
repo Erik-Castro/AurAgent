@@ -1,4 +1,5 @@
 import type { GenerateResponse, ToolCall } from '../core/types.ts';
+import type { AgentState } from './state.ts';
 
 const BOLD = '\x1b[1m';
 const CYAN = '\x1b[36m';
@@ -13,6 +14,17 @@ export class Explainer {
   private finishReason: GenerateResponse['finishReason'] = 'stop';
 
   constructor(private enabled: boolean) {}
+
+  onState(state: AgentState): void {
+    if (!this.enabled) return;
+    console.log(`${BOLD}${CYAN}  ── state ──${RESET}`);
+    console.log(`  objective: ${state.objective.slice(0, 120)}`);
+    console.log(
+      `  plan: ${state.plan.map((s) => `${s.id}:${s.status}`).join(', ')}`,
+    );
+    console.log(`  lastAction: ${state.lastAction?.tool ?? 'none'}`);
+    console.log(`  openErrors: ${state.openErrors.length}`);
+  }
 
   startIteration(n: number): void {
     if (!this.enabled) return;

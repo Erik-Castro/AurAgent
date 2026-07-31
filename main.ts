@@ -38,6 +38,11 @@ const config: AgentConfig = {
   toolProtocolMode: DEFAULT_TOOL_PROTOCOL_MODE,
   hybridNativeToolsMinCtx: DEFAULT_HYBRID_NATIVE_TOOLS_MIN_CTX,
   compactCatalogMaxTokens: DEFAULT_COMPACT_CATALOG_MAX_TOKENS,
+  maxRecentActions: 3,
+  maxOpenErrors: 5,
+  maxPlanSteps: 12,
+  maxArtifactsInPrompt: 30,
+  useExecutionState: true,
 };
 
 function parseFlags(): {

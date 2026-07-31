@@ -68,6 +68,18 @@ export class WorkspacePathError extends DomainError {
   }
 }
 
+export class StateInvariantError extends DomainError {
+  constructor(message: string) {
+    super(message, 'STATE_INVARIANT');
+  }
+}
+
+export class PromptBudgetExceededError extends DomainError {
+  constructor(message: string) {
+    super(message, 'PROMPT_BUDGET_EXCEEDED');
+  }
+}
+
 export type Result<T, E = DomainError> =
   | { ok: true; value: T }
   | { ok: false; error: E };

@@ -28,6 +28,13 @@ export const DEFAULT_COMPACT_CATALOG_MAX_TOKENS = 600;
 export const DEFAULT_FALLBACK_NUM_CTX = 4096;
 export const DEFAULT_MAX_TOKENS_OUT = 4096;
 
+// SPEC-OC-003: Execution State Manager
+export const DEFAULT_MAX_RECENT_ACTIONS = 3;
+export const DEFAULT_MAX_OPEN_ERRORS = 5;
+export const DEFAULT_MAX_PLAN_STEPS = 12;
+export const DEFAULT_MAX_ARTIFACTS_IN_PROMPT = 30;
+export const DEFAULT_MAX_ACCEPTANCE_ITEMS = 8;
+
 export const TOOL_PROTOCOL_BLOCK = `## Tool protocol
 You may call tools. When you need a tool, respond with ONLY a JSON object:
 {"name":"<ToolName>","arguments":{...}}

@@ -10,7 +10,11 @@ import {
   shouldSendNativeTools,
   trimMessagesToBudget,
 } from './token-budget.ts';
-import { DEFAULT_FALLBACK_NUM_CTX } from '../core/constants.ts';
+import { buildPromptFromState } from './prompt-builder.ts';
+import { applyAssistantFinal, applyToolResults } from './state-transitions.ts';
+import type { AgentState } from './state.ts';
+import { SterileLoopError } from '../core/errors.ts';
+import { DEFAULT_FALLBACK_NUM_CTX, TOOL_PROTOCOL_BLOCK } from '../core/constants.ts';
 import type {
   GenerateResponse,
   StreamDisplay,
@@ -192,6 +196,207 @@ export async function runReActLoop(
     status: 'max_iterations',
     output: lastOutput,
     iterations,
+    durationMs: Date.now() - startTime,
+  };
+}
+
+export async function runReActLoopWithState(
+  task: string,
+  ctx: AgentContext,
+  state: AgentState,
+  display?: StreamDisplay,
+): Promise<AgentResult> {
+  const startTime = Date.now();
+  const sterileDetector = new SterileLoopDetector(
+    ctx.config.sterileLoopThreshold,
+  );
+  let lastOutput = '';
+  let explainer: Explainer | undefined;
+  let anyToolExecuted = false;
+
+  const knownToolNames = new Set(ctx.toolHandlers.keys());
+  const mode = resolveToolProtocolMode(ctx.config.toolProtocolMode, Deno.env.toObject());
+  const numCtx = ctx.config.numCtx ?? DEFAULT_FALLBACK_NUM_CTX;
+  const promptBudget = numCtx - ctx.config.outputReserveTokens;
+  const sendNativeTools = shouldSendNativeTools(
+    mode,
+    numCtx,
+    ctx.config.hybridNativeToolsMinCtx,
+  );
+  const maxTokens = maxTokensOut(ctx.config.outputReserveTokens);
+  const requestNumCtx = numCtx;
+
+  const tools: ToolDefinition[] = [];
+  for (const handler of ctx.toolHandlers.values()) {
+    tools.push(handler.definition);
+  }
+
+  while (state.iteration < ctx.config.maxIterations) {
+    state = { ...state, iteration: state.iteration + 1 };
+    ctx.eventBus.emit('iteration:started', { iteration: state.iteration });
+    if (explainer) explainer.onState(state);
+
+    let prompt;
+    try {
+      prompt = buildPromptFromState(
+        state,
+        ctx.config,
+        tools,
+        TOOL_PROTOCOL_BLOCK,
+        { promptBudget },
+      );
+    } catch (err) {
+      const msg = `Erro: prompt excede orçamento de contexto (num_ctx=${numCtx}). ${(err as Error).message}`;
+      ctx.eventBus.emit('task:completed', { status: 'error', iterations: state.iteration });
+      return {
+        status: 'error',
+        output: msg,
+        iterations: state.iteration,
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    ctx.eventBus.emit('prompt:built', {
+      tokensEst: prompt.tokensEst,
+      prompt_budget: promptBudget,
+    });
+
+    ctx.eventBus.emit('model:request_started', { iteration: state.iteration });
+
+    const response = await streamResponse(
+      ctx,
+      prompt.messages,
+      sendNativeTools ? tools : [],
+      state.iteration,
+      display,
+      (e) => {
+        explainer = e;
+      },
+      { maxTokens, numCtx: requestNumCtx },
+    );
+
+    ctx.eventBus.emit('model:request_finished', {
+      iteration: state.iteration,
+      finishReason: response.finishReason,
+    });
+
+    const normalized = normalizeModelResponse(response, knownToolNames);
+
+    if (normalized.finishReason === 'error') {
+      return {
+        status: 'error',
+        output: normalized.content || 'LLM retornou um erro',
+        iterations: state.iteration,
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    const pseudoUsed = (response.toolCalls?.length ?? 0) === 0 &&
+      (normalized.toolCalls?.length ?? 0) > 0;
+
+    if (normalized.content) lastOutput = normalized.content;
+
+    if (normalized.toolCalls && normalized.toolCalls.length > 0) {
+      if (pseudoUsed && explainer) {
+        for (const call of normalized.toolCalls) {
+          explainer.onPseudoToolCall(call);
+        }
+      }
+      anyToolExecuted = true;
+
+      let results;
+      try {
+        results = await executeToolCalls(
+          normalized.toolCalls,
+          state.iteration,
+          ctx,
+          sterileDetector,
+        );
+      } catch (err) {
+        if (err instanceof SterileLoopError) {
+          state = { ...state, flags: { ...state.flags, sterileStop: true } };
+          ctx.eventBus.emit('task:completed', {
+            status: 'error',
+            iterations: state.iteration,
+          });
+          return {
+            status: 'error',
+            output: `Erro: loop estéril detectado (${err.repeatedAction} x${err.repeatCount})`,
+            iterations: state.iteration,
+            durationMs: Date.now() - startTime,
+          };
+        }
+        throw err;
+      }
+
+      state = await applyToolResults(
+        state,
+        normalized.toolCalls,
+        results,
+        ctx.workspace,
+        ctx.config,
+      );
+
+      ctx.eventBus.emit('state:updated', {
+        iteration: state.iteration,
+        lastTool: state.lastAction?.tool ?? null,
+        artifactCount: state.artifacts.length,
+      });
+
+      for (const callResult of results) {
+        if (explainer) {
+          explainer.onToolResult(callResult.toolName, callResult.output);
+        }
+      }
+
+      ctx.eventBus.emit('iteration:finished', { iteration: state.iteration });
+      continue;
+    }
+
+    if (normalized.finishReason === 'stop') {
+      state = applyAssistantFinal(state, normalized.content, ctx.config);
+      if (isStrictEmptyFinal(task, normalized, anyToolExecuted)) {
+        return {
+          status: 'error',
+          output: 'Erro: modelo encerrou sem resposta e sem tool calls',
+          iterations: state.iteration,
+          durationMs: Date.now() - startTime,
+        };
+      }
+      const status = state.flags.lastWriteGateFailed ? 'failed_validation' : 'success';
+      ctx.eventBus.emit('task:completed', {
+        status,
+        iterations: state.iteration,
+        duration: Date.now() - startTime,
+      });
+      return {
+        status,
+        output: normalized.content,
+        iterations: state.iteration,
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    if (normalized.finishReason === 'length') {
+      ctx.eventBus.emit('task:completed', {
+        status: 'truncated',
+        iterations: state.iteration,
+      });
+      return {
+        status: 'truncated',
+        output: normalized.content,
+        iterations: state.iteration,
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    ctx.eventBus.emit('iteration:finished', { iteration: state.iteration });
+  }
+
+  return {
+    status: 'max_iterations',
+    output: lastOutput,
+    iterations: state.iteration,
     durationMs: Date.now() - startTime,
   };
 }

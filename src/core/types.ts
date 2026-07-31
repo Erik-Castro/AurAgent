@@ -106,11 +106,10 @@ export interface AgentConfig {
   toolProtocolMode: 'native' | 'pseudo' | 'hybrid';
   hybridNativeToolsMinCtx: number;
   compactCatalogMaxTokens: number;
-}
-
-export interface AgentState {
-  iteration: number;
-  config: AgentConfig;
-  startTime: number;
-  task: string;
+  // SPEC-OC-003
+  maxRecentActions: number;
+  maxOpenErrors: number;
+  maxPlanSteps: number;
+  maxArtifactsInPrompt: number;
+  useExecutionState: boolean;
 }

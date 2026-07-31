@@ -15,7 +15,10 @@ export type EventName =
   | 'checkpoint:restored'
   | 'memory:loaded'
   | 'memory:persisted'
-  | 'context:summarized';
+  | 'context:summarized'
+  | 'state:initialized'
+  | 'state:updated'
+  | 'prompt:built';
 
 export interface Event {
   name: EventName;

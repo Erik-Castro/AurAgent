@@ -79,6 +79,11 @@ async function runScenario(
       toolProtocolMode: 'hybrid',
       hybridNativeToolsMinCtx: 16384,
       compactCatalogMaxTokens: 600,
+      maxRecentActions: 3,
+      maxOpenErrors: 5,
+      maxPlanSteps: 12,
+      maxArtifactsInPrompt: 30,
+      useExecutionState: true,
     };
 
     const ctx = buildEvalContext(agentConfig);

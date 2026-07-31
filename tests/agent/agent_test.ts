@@ -11,7 +11,7 @@ import { buildToolRegistry } from '../../src/tools/register.ts';
 
 // Mock model provider que sempre retorna uma resposta de "stop"
 class MockModelProvider implements ModelProvider {
-  constructor(private response: GenerateResponse) {}
+  constructor(protected response: GenerateResponse) {}
 
   generate(_request: GenerateRequest): Promise<GenerateResponse> {
     return Promise.resolve(this.response);
@@ -25,6 +25,16 @@ class MockModelProvider implements ModelProvider {
         controller.close();
       },
     });
+  }
+}
+
+// Captura as mensagens enviadas ao provider (assert D2)
+class CapturingModelProvider extends MockModelProvider {
+  requests: GenerateRequest[] = [];
+
+  override generate(request: GenerateRequest): Promise<GenerateResponse> {
+    this.requests.push(request);
+    return Promise.resolve(this.response);
   }
 }
 
@@ -43,6 +53,11 @@ const baseConfig: AgentConfig = {
   toolProtocolMode: 'hybrid',
   hybridNativeToolsMinCtx: 16384,
   compactCatalogMaxTokens: 600,
+  maxRecentActions: 3,
+  maxOpenErrors: 5,
+  maxPlanSteps: 12,
+  maxArtifactsInPrompt: 30,
+  useExecutionState: true,
 };
 
 function createMockContext(
@@ -177,6 +192,84 @@ Deno.test('Agent.run persiste session summary no memoryStore', async () => {
   assert(savedKey.startsWith('session:'));
   assertEquals(savedValue.task, 'minha tarefa');
   assertEquals(savedValue.status, 'success');
+});
+
+Deno.test('D2: provider recebe apenas messages system+user por turno', async () => {
+  const provider = new CapturingModelProvider({
+    content: 'concluído',
+    finishReason: 'stop',
+  });
+  const ctx = createMockContext(provider);
+  const agent = new Agent(ctx);
+
+  const result = await agent.run('escreva um arquivo');
+
+  assertEquals(result.status, 'success');
+  assert(provider.requests.length >= 1);
+  for (const req of provider.requests) {
+    const roles = req.messages.map((m) => m.role);
+    assert(roles.includes('system'));
+    assert(roles.includes('user'));
+    assert(
+      roles.every((r) => r === 'system' || r === 'user'),
+      `roles não permitidas: ${roles.join(',')}`,
+    );
+    const userMsg = req.messages.find((m) => m.role === 'user');
+    assert(userMsg?.content.includes('## Objective'));
+  }
+});
+
+Deno.test('D3: objective idêntico no resumo persistido', async () => {
+  const provider = new MockModelProvider({
+    content: 'ok',
+    finishReason: 'stop',
+  });
+
+  let savedValue: Record<string, unknown> = {};
+  const ctx = createMockContext(provider, {
+    memoryStore: {
+      get() {
+        return Promise.resolve(null);
+      },
+      set(_key, value) {
+        savedValue = value as Record<string, unknown>;
+        return Promise.resolve();
+      },
+      delete() {
+        return Promise.resolve();
+      },
+      list() {
+        return Promise.resolve([]);
+      },
+    },
+  });
+  const agent = new Agent(ctx);
+
+  const task = 'corrija o bug em app.js';
+  await agent.run(task);
+
+  assertEquals(savedValue.objective, task);
+});
+
+Deno.test('Agent.run emite evento state:initialized', async () => {
+  const provider = new MockModelProvider({
+    content: 'ok',
+    finishReason: 'stop',
+  });
+  const bus = new InMemoryEventBus();
+  const events: { objective?: string; planLength?: number } = {};
+  bus.on('state:initialized', (e) => {
+    const data = e.data as { objective: string; planLength: number };
+    events.objective = data.objective;
+    events.planLength = data.planLength;
+  });
+
+  const ctx = createMockContext(provider, { eventBus: bus });
+  const agent = new Agent(ctx);
+
+  await agent.run('escreva um app.js');
+  assertEquals(events.objective, 'escreva um app.js');
+  assertEquals(events.planLength, 3);
 });
 
 Deno.test('Agent.run com tool_calls repetidos detecta sterile loop', async () => {
