@@ -4,7 +4,10 @@ import type { EventBus } from '../ports/event-bus.ts';
 export interface CheckpointEntry {
   id: string;
   filePath: string;
+  /** Conteúdo UTF-8 antes da escrita. String vazia se existed === false. */
   originalContent: string;
+  /** true se e somente se workspace.exists(filePath) era true antes da escrita. */
+  existed: boolean;
   timestamp: number;
   iteration: number;
 }
@@ -25,22 +28,21 @@ export class CheckpointManager {
     iteration: number,
     workspace: Workspace,
   ): Promise<string> {
+    if (typeof filePath !== 'string' || filePath.trim() === '') {
+      throw new Error('filePath deve ser uma string não vazia');
+    }
+
     const safePath = filePath.replace(/[\/\\]/g, '_');
     const id = `iter-${iteration}_${safePath}`;
 
-    let originalContent = '';
-    try {
-      if (await workspace.exists(filePath)) {
-        originalContent = await workspace.read(filePath);
-      }
-    } catch {
-      // new file, no original content
-    }
+    const existed = await workspace.exists(filePath);
+    const originalContent = existed ? await workspace.read(filePath) : '';
 
     const entry: CheckpointEntry = {
       id,
       filePath,
       originalContent,
+      existed,
       timestamp: Date.now(),
       iteration,
     };
@@ -59,18 +61,32 @@ export class CheckpointManager {
     if (!entry) {
       throw new Error(`Checkpoint ${id} não encontrado`);
     }
-    await workspace.write(entry.filePath, entry.originalContent);
-    this.eventBus?.emit('checkpoint:restored', { id, filePath: entry.filePath });
+    await this.restoreEntry(entry, workspace);
+    this.eventBus?.emit('checkpoint:restored', { id: entry.id, filePath: entry.filePath });
   }
 
   async restoreLast(workspace: Workspace): Promise<void> {
     const last = this.checkpoints[this.checkpoints.length - 1];
     if (!last) return;
-    await workspace.write(last.filePath, last.originalContent);
+    await this.restoreEntry(last, workspace);
     this.eventBus?.emit('checkpoint:restored', {
       id: last.id,
       filePath: last.filePath,
     });
+  }
+
+  private async restoreEntry(
+    entry: CheckpointEntry,
+    workspace: Workspace,
+  ): Promise<void> {
+    if (entry.existed) {
+      await workspace.write(entry.filePath, entry.originalContent);
+    } else {
+      const stillExists = await workspace.exists(entry.filePath);
+      if (stillExists) {
+        await workspace.remove(entry.filePath);
+      }
+    }
   }
 
   async cleanup(): Promise<void> {

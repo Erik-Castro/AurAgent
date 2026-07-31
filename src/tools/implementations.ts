@@ -70,8 +70,28 @@ export const writeFileHandler: ToolHandler = {
   parallelSafe: false,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const path = call.args.path as string;
+    if (typeof path !== 'string' || path === '') {
+      return { callId: call.id, output: 'Erro: path obrigatório' };
+    }
+
     const content = call.args.content as string;
+    if (typeof content !== 'string') {
+      return { callId: call.id, output: 'Erro: content deve ser string' };
+    }
+
     const mode = (call.args.mode as string) ?? 'overwrite';
+    const validModes = new Set(['create', 'overwrite', 'append']);
+    if (!validModes.has(mode)) {
+      return { callId: call.id, output: `Erro: mode inválido "${mode}". Valores: create | overwrite | append` };
+    }
+
+    if (mode === 'create') {
+      if (await ctx.workspace.exists(path)) {
+        return { callId: call.id, output: `Erro: Arquivo já existe: ${path}` };
+      }
+      await ctx.workspace.write(path, content);
+      return { callId: call.id, output: `Arquivo escrito: ${path}` };
+    }
 
     if (mode === 'append') {
       const existing = await ctx.workspace.exists(path)

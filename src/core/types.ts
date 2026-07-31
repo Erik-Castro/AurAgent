@@ -98,6 +98,12 @@ export interface AgentConfig {
   preCommitGate?: boolean;
   rulesPaths?: string[];
   display?: StreamDisplay;
+  // SPEC-OC-002
+  numCtx: number | null;
+  outputReserveTokens: number;
+  toolProtocolMode: 'native' | 'pseudo' | 'hybrid';
+  hybridNativeToolsMinCtx: number;
+  compactCatalogMaxTokens: number;
 }
 
 export interface AgentState {

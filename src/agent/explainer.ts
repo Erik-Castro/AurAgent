@@ -35,6 +35,17 @@ export class Explainer {
     );
   }
 
+  onToolResult(toolName: string, output: string, maxChars = 100_000): void {
+    if (!this.enabled) return;
+    const truncated = output.length > maxChars
+      ? output.slice(0, maxChars) + '\n… [truncated]'
+      : output;
+    console.log(
+      `\n${BOLD}${CYAN}  ── observation (${toolName}) ──${RESET}`,
+    );
+    console.log(truncated);
+  }
+
   onDone(finishReason: GenerateResponse['finishReason']): void {
     if (!this.enabled) return;
     this.finishReason = finishReason;

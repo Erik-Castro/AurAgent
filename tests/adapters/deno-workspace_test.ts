@@ -1,5 +1,6 @@
-import { assertEquals, assert } from '@std/assert';
+import { assertEquals, assert, assertRejects } from '@std/assert';
 import { DenoWorkspace } from '../../src/adapters/deno-workspace.ts';
+import { WorkspacePathError } from '../../src/core/errors.ts';
 
 const testDir = '/tmp/aur-test-workspace';
 
@@ -91,6 +92,91 @@ Deno.test({
 
     await ws.write('dir1/dir2/profundo.txt', 'profundo');
     assertEquals(await ws.exists('dir1/dir2/profundo.txt'), true);
+
+    await Deno.remove(testDir, { recursive: true });
+  },
+});
+
+// --- SPEC-OC-001 §3.3.5: Path safety tests ---
+
+Deno.test({
+  name: 'path safety: rejeita ../ (traversal)',
+  async fn() {
+    await Deno.mkdir(testDir, { recursive: true });
+    const ws = new DenoWorkspace(testDir);
+
+    await assertRejects(
+      () => ws.write('../escape.txt', 'data'),
+      WorkspacePathError,
+    );
+    await assertRejects(
+      () => ws.write('../', 'data'),
+      WorkspacePathError,
+    );
+    await assertRejects(
+      () => ws.write('..', 'data'),
+      WorkspacePathError,
+    );
+
+    await Deno.remove(testDir, { recursive: true });
+  },
+});
+
+Deno.test({
+  name: 'path safety: rejeita path absoluto fora do workspace',
+  async fn() {
+    await Deno.mkdir(testDir, { recursive: true });
+    const ws = new DenoWorkspace(testDir);
+
+    await assertRejects(
+      () => ws.write('/etc/passwd', 'data'),
+      WorkspacePathError,
+    );
+
+    await Deno.remove(testDir, { recursive: true });
+  },
+});
+
+Deno.test({
+  name: 'path safety: rejeita path vazio',
+  async fn() {
+    await Deno.mkdir(testDir, { recursive: true });
+    const ws = new DenoWorkspace(testDir);
+
+    await assertRejects(
+      () => ws.write('', 'data'),
+      WorkspacePathError,
+    );
+
+    await Deno.remove(testDir, { recursive: true });
+  },
+});
+
+Deno.test({
+  name: 'path safety: rejeita foo/../../etc/passwd',
+  async fn() {
+    await Deno.mkdir(testDir, { recursive: true });
+    const ws = new DenoWorkspace(testDir);
+
+    await assertRejects(
+      () => ws.write('foo/../../etc/passwd', 'data'),
+      WorkspacePathError,
+    );
+
+    await Deno.remove(testDir, { recursive: true });
+  },
+});
+
+Deno.test({
+  name: 'path safety: aceita path dentro do workspace',
+  async fn() {
+    await Deno.mkdir(testDir, { recursive: true });
+    const ws = new DenoWorkspace(testDir);
+
+    await ws.write('helloworld.js', 'ok');
+    assertEquals(await ws.exists('helloworld.js'), true);
+    await ws.write('src/a.ts', 'ok');
+    assertEquals(await ws.exists('src/a.ts'), true);
 
     await Deno.remove(testDir, { recursive: true });
   },

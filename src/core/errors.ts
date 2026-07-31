@@ -62,6 +62,12 @@ export class ConfigurationError extends DomainError {
   }
 }
 
+export class WorkspacePathError extends DomainError {
+  constructor(message: string) {
+    super(message, 'WORKSPACE_PATH_ERROR');
+  }
+}
+
 export type Result<T, E = DomainError> =
   | { ok: true; value: T }
   | { ok: false; error: E };

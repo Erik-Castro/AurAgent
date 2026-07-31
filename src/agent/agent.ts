@@ -7,7 +7,7 @@ import { WorkingMemory } from './memory.ts';
 import { runReActLoop } from './loop.ts';
 
 export interface AgentResult {
-  status: 'success' | 'error' | 'max_iterations' | 'truncated';
+  status: 'success' | 'error' | 'max_iterations' | 'truncated' | 'failed_validation';
   output: string;
   iterations: number;
   durationMs: number;
