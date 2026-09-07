@@ -7,6 +7,7 @@ import type { ToolHandler } from '../tools/handler.ts';
 import type { AgentConfig } from '../core/types.ts';
 import type { HITLManager } from './hitl-manager.ts';
 import type { CheckpointManager } from './checkpoint.ts';
+import type { PromptCache } from './prompt-cache.ts';
 
 export interface AgentContext {
   workspace: Workspace;
@@ -18,5 +19,6 @@ export interface AgentContext {
   config: AgentConfig;
   hitlManager?: HITLManager;
   checkpointManager?: CheckpointManager;
+  promptCache?: PromptCache;
   readInput: (promptText: string) => Promise<string>;
 }
