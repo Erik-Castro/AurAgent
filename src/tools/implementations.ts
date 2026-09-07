@@ -6,6 +6,7 @@ export const shellBashHandler: ToolHandler = {
   definition: defs.SHELL_BASH_DEF,
   riskLevel: 'low',
   parallelSafe: false,
+  timeoutMs: 30_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const result = await ctx.processRunner.run({
       command: call.args.command as string,
@@ -19,17 +20,24 @@ export const shellBashHandler: ToolHandler = {
   },
 };
 
+const STREAM_THRESHOLD = 10 * 1024 * 1024; // 10 MiB
+const DEFAULT_LIMIT = 2000;
+const MAX_LINE_CHARS = 2000;
+const MAX_OUTPUT_BYTES = 50 * 1024;
+
 export const readFileHandler: ToolHandler = {
   definition: defs.READ_FILE_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 10_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const paths = call.args.paths as string[];
-    const linesOpt = call.args.lines as { start?: number; end?: number } | undefined;
     const encoding = (call.args.encoding as string | undefined) ?? 'utf-8';
+    const offset = Math.max(1, (call.args.offset as number | undefined) ?? 1);
+    const limit = Math.min(5000, Math.max(1, (call.args.limit as number | undefined) ?? DEFAULT_LIMIT));
+    const lineNumbers = (call.args.line_numbers as boolean | undefined) !== false;
 
     if (encoding === 'base64') {
-      // Read raw bytes and return base64
       const entries = await Promise.all(
         paths.map(async (path) => {
           const bytes = await Deno.readFile(
@@ -42,32 +50,107 @@ export const readFileHandler: ToolHandler = {
       return { callId: call.id, output: JSON.stringify(entries, null, 2) };
     }
 
-    const entries = await ctx.workspace.readMultiple(paths);
+    const results: string[] = [];
+    for (const path of paths) {
+      const fileStat = await ctx.workspace.stat(path);
+      if (!fileStat || !fileStat.isFile) {
+        results.push(`ERROR: File not found: ${path}`);
+        continue;
+      }
 
-    let output: string;
-    if (linesOpt) {
-      const start = linesOpt.start ?? 0;
-      const end = linesOpt.end;
-      const filtered = entries.map((e) => {
-        const contentLines = e.content.split('\n');
-        const sliced = end
-          ? contentLines.slice(start, end)
-          : contentLines.slice(start);
-        return { path: e.path, content: sliced.join('\n'), language: e.language };
-      });
-      output = JSON.stringify(filtered, null, 2);
-    } else {
-      output = JSON.stringify(entries, null, 2);
+      let output: string;
+      if (fileStat.size >= STREAM_THRESHOLD) {
+        output = await readStreamWindowed(ctx, path, offset, limit, lineNumbers);
+      } else {
+        output = await readWholeWindowed(ctx, path, offset, limit, lineNumbers);
+      }
+      results.push(output);
     }
 
-    return { callId: call.id, output };
+    return { callId: call.id, output: results.join('\n\n') };
   },
 };
+
+async function readWholeWindowed(
+  ctx: ToolContext,
+  path: string,
+  offset: number,
+  limit: number,
+  lineNumbers: boolean,
+): Promise<string> {
+  const content = await ctx.workspace.read(path);
+  const allLines = content.split('\n');
+  const totalLines = allLines.length;
+  const slice = allLines.slice(offset - 1, offset - 1 + limit);
+
+  return formatOutput(path, slice, offset, totalLines, lineNumbers);
+}
+
+async function readStreamWindowed(
+  ctx: ToolContext,
+  path: string,
+  offset: number,
+  limit: number,
+  lineNumbers: boolean,
+): Promise<string> {
+  let totalLines = 0;
+  const collected: string[] = [];
+  let bytesCollected = 0;
+  let lineNum = 0;
+
+  for await (const line of ctx.workspace.readStream(path)) {
+    totalLines++;
+    lineNum++;
+
+    if (lineNum >= offset && collected.length < limit) {
+      const truncated = line.length > MAX_LINE_CHARS
+        ? line.slice(0, MAX_LINE_CHARS) + `... (truncated to ${MAX_LINE_CHARS} chars)`
+        : line;
+      const prefixed = lineNumbers ? `${lineNum}: ${truncated}` : truncated;
+      bytesCollected += prefixed.length;
+      if (bytesCollected > MAX_OUTPUT_BYTES) break;
+      collected.push(prefixed);
+    }
+  }
+
+  const endLine = Math.min(offset - 1 + collected.length, totalLines);
+  const header = `${path} (lines ${offset}-${endLine} of ${totalLines})`;
+  const footer = endLine < totalLines
+    ? `\n(Use offset=${endLine + 1} to continue reading)`
+    : '';
+
+  return header + '\n' + collected.join('\n') + footer;
+}
+
+function formatOutput(
+  path: string,
+  lines: string[],
+  offset: number,
+  totalLines: number,
+  lineNumbers: boolean,
+): string {
+  const prefixed = lines.map((line, i) => {
+    const ln = offset + i;
+    const truncated = line.length > MAX_LINE_CHARS
+      ? line.slice(0, MAX_LINE_CHARS) + `... (truncated to ${MAX_LINE_CHARS} chars)`
+      : line;
+    return lineNumbers ? `${ln}: ${truncated}` : truncated;
+  });
+
+  const endLine = Math.min(offset - 1 + lines.length, totalLines);
+  const header = `${path} (lines ${offset}-${endLine} of ${totalLines})`;
+  const footer = endLine < totalLines
+    ? `\n(Use offset=${endLine + 1} to continue reading)`
+    : '';
+
+  return header + '\n' + prefixed.join('\n') + footer;
+}
 
 export const writeFileHandler: ToolHandler = {
   definition: defs.WRITE_FILE_DEF,
   riskLevel: 'medium',
   parallelSafe: false,
+  timeoutMs: 5_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const path = call.args.path as string;
     if (typeof path !== 'string' || path === '') {
@@ -106,10 +189,82 @@ export const writeFileHandler: ToolHandler = {
   },
 };
 
+export const editFileHandler: ToolHandler = {
+  definition: defs.EDIT_FILE_DEF,
+  riskLevel: 'medium',
+  parallelSafe: false,
+  timeoutMs: 10_000,
+  async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
+    const path = call.args.path as string;
+    if (!path) {
+      return { callId: call.id, output: 'Error: path is required', error: 'path required' };
+    }
+
+    const oldString = call.args.old_string as string;
+    const newString = call.args.new_string as string;
+    const replaceAll = (call.args.replace_all as boolean) ?? false;
+
+    if (typeof oldString !== 'string' || oldString === '') {
+      return { callId: call.id, output: 'Error: old_string is required and must not be empty', error: 'old_string empty' };
+    }
+    if (typeof newString !== 'string') {
+      return { callId: call.id, output: 'Error: new_string is required', error: 'new_string required' };
+    }
+    if (oldString === newString) {
+      return { callId: call.id, output: 'Error: old_string and new_string are identical — no change to make', error: 'no change' };
+    }
+
+    // Read entire file (edit requires full buffer)
+    const exists = await ctx.workspace.exists(path);
+    if (!exists) {
+      return { callId: call.id, output: `Error: file not found: ${path}`, error: 'not found' };
+    }
+
+    const content = await ctx.workspace.read(path);
+
+    // Count occurrences
+    const occurrences = content.split(oldString).length - 1;
+    if (occurrences === 0) {
+      return {
+        callId: call.id,
+        output: `Error: old_string not found in ${path}. The file may have changed since your last read — re-read it and try again.`,
+        error: 'not found',
+      };
+    }
+    if (occurrences > 1 && !replaceAll) {
+      return {
+        callId: call.id,
+        output: `Error: old_string occurs ${occurrences} times in ${path}. Use replace_all=true or provide more context to make the match unique.`,
+        error: 'ambiguous',
+      };
+    }
+
+    // Find line number for context
+    const beforeMatch = content.indexOf(oldString);
+    const lineNum = content.substring(0, beforeMatch).split('\n').length;
+
+    // Apply edit
+    const newContent = replaceAll
+      ? content.split(oldString).join(newString)
+      : content.replace(oldString, newString);
+
+    await ctx.workspace.write(path, newContent);
+
+    const linesReplaced = oldString.split('\n').length;
+    const linesAdded = newString.split('\n').length;
+
+    return {
+      callId: call.id,
+      output: `Edited ${path}: line ${lineNum} (${linesReplaced} → ${linesAdded} lines, ${occurrences} occurrence${occurrences > 1 ? 's' : ''} replaced)`,
+    };
+  },
+};
+
 export const findFilesHandler: ToolHandler = {
   definition: defs.FIND_FILES_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 10_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const pattern = call.args.pattern as string;
     const exclude = (call.args.exclude as string[]) ?? [];
@@ -135,6 +290,7 @@ export const grepHandler: ToolHandler = {
   definition: defs.GREP_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 30_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const query = call.args.query as string;
     const pathFilter = call.args.path as string | undefined;
@@ -158,17 +314,19 @@ export const grepHandler: ToolHandler = {
     for (const file of allFiles) {
       if (pathFilter && !file.startsWith(pathFilter)) continue;
       try {
-        const content = await ctx.workspace.read(file);
-        const lines = content.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-          const match = lines[i].match(regex);
+        const fileStat = await ctx.workspace.stat(file);
+        if (!fileStat || !fileStat.isFile) continue;
+
+        let lineNum = 0;
+        for await (const line of ctx.workspace.readStream(file)) {
+          lineNum++;
+          const match = line.match(regex);
           if (match) {
-            const column = (match.index ?? 0) + 1;
             results.push({
               file,
-              line: i + 1,
-              column,
-              content: lines[i].trim(),
+              line: lineNum,
+              column: (match.index ?? 0) + 1,
+              content: line.trim().slice(0, 300),
             });
             if (results.length >= maxResults) break;
           }
@@ -220,6 +378,7 @@ export const runTestsHandler: ToolHandler = {
   definition: defs.RUN_TESTS_DEF,
   riskLevel: 'low',
   parallelSafe: false,
+  timeoutMs: 120_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const framework =
       (call.args.framework as string | undefined) ??
@@ -264,6 +423,7 @@ export const listDepsHandler: ToolHandler = {
   definition: defs.LIST_DEPS_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 5_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const ecosystem =
       (call.args.ecosystem as string | undefined) ??
@@ -326,6 +486,7 @@ export const installDepHandler: ToolHandler = {
   definition: defs.INSTALL_DEP_DEF,
   riskLevel: 'medium',
   parallelSafe: false,
+  timeoutMs: 60_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const name = call.args.name as string;
     const version = call.args.version as string | undefined;
@@ -400,6 +561,7 @@ export const webSearchHandler: ToolHandler = {
   definition: defs.WEB_SEARCH_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 15_000,
   async execute(call: ToolCall, _ctx: ToolContext): Promise<ToolResult> {
     const query = call.args.query as string;
     const maxResults = (call.args.max_results as number | undefined) ?? 3;
@@ -451,6 +613,7 @@ export const webFetchHandler: ToolHandler = {
   definition: defs.WEB_FETCH_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 15_000,
   async execute(call: ToolCall, _ctx: ToolContext): Promise<ToolResult> {
     const url = call.args.url as string;
     try {
@@ -474,6 +637,7 @@ export const gitDiffHandler: ToolHandler = {
   definition: defs.GIT_DIFF_DEF,
   riskLevel: 'low',
   parallelSafe: true,
+  timeoutMs: 10_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const stagedOnly = call.args.staged_only as boolean | undefined;
     const path = call.args.path as string | undefined;
@@ -491,6 +655,7 @@ export const gitCommitHandler: ToolHandler = {
   definition: defs.GIT_COMMIT_DEF,
   riskLevel: 'high',
   parallelSafe: false,
+  timeoutMs: 10_000,
   async execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult> {
     const message = call.args.message as string;
     const files = call.args.files as string[] | undefined;
@@ -539,6 +704,7 @@ export const ALL_HANDLERS: ToolHandler[] = [
   shellBashHandler,
   readFileHandler,
   writeFileHandler,
+  editFileHandler,
   findFilesHandler,
   grepHandler,
   runTestsHandler,

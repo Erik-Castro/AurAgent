@@ -31,27 +31,32 @@ export const SHELL_BASH_DEF: ToolDefinition = {
 
 export const READ_FILE_DEF: ToolDefinition = {
   name: 'ReadFile',
-  description: 'Lê o conteúdo de um ou mais arquivos do sistema de arquivos.',
+  description:
+    'Reads file content with streaming support for large files. Returns line-numbered output with pagination.',
   parameters: {
     type: 'object',
     properties: {
       paths: {
         type: 'array',
         items: { type: 'string' },
-        description: 'Caminhos relativos ao workspace.',
+        description: 'File paths relative to workspace.',
       },
       encoding: {
         type: 'string',
         enum: ['utf-8', 'base64'],
-        description: 'Codificação do arquivo (padrão utf-8).',
+        description: 'File encoding (default: utf-8).',
       },
-      lines: {
-        type: 'object',
-        properties: {
-          start: { type: 'number', description: 'Linha inicial (0-indexed).' },
-          end: { type: 'number', description: 'Linha final (exclusivo).' },
-        },
-        description: 'Leitura parcial de linhas.',
+      offset: {
+        type: 'number',
+        description: 'Start line, 1-based. Use for pagination of large files.',
+      },
+      limit: {
+        type: 'number',
+        description: 'Max lines to return (default: 2000).',
+      },
+      line_numbers: {
+        type: 'boolean',
+        description: 'Prefix each line with "N: " (default: true).',
       },
     },
     required: ['paths'],
@@ -258,6 +263,34 @@ export const GIT_DIFF_DEF: ToolDefinition = {
   },
 };
 
+export const EDIT_FILE_DEF: ToolDefinition = {
+  name: 'EditFile',
+  description:
+    'Edit a file by replacing an exact literal string match with new content. Fails if old_string is not found exactly once.',
+  parameters: {
+    type: 'object',
+    properties: {
+      path: {
+        type: 'string',
+        description: 'File path relative to workspace.',
+      },
+      old_string: {
+        type: 'string',
+        description: 'Exact literal text to find and replace (must match exactly once).',
+      },
+      new_string: {
+        type: 'string',
+        description: 'Replacement text.',
+      },
+      replace_all: {
+        type: 'boolean',
+        description: 'Replace all occurrences instead of requiring exactly one (default: false).',
+      },
+    },
+    required: ['path', 'old_string', 'new_string'],
+  },
+};
+
 export const GIT_COMMIT_DEF: ToolDefinition = {
   name: 'GitCommit',
   description: 'Cria um commit com as alterações atuais. Sujeito a HITL.',
@@ -302,6 +335,7 @@ export const ALL_DEFINITIONS: ToolDefinition[] = [
   SHELL_BASH_DEF,
   READ_FILE_DEF,
   WRITE_FILE_DEF,
+  EDIT_FILE_DEF,
   FIND_FILES_DEF,
   GREP_DEF,
   RUN_TESTS_DEF,

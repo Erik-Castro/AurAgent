@@ -80,6 +80,16 @@ export class PromptBudgetExceededError extends DomainError {
   }
 }
 
+export class ToolTimeoutError extends DomainError {
+  constructor(
+    message: string,
+    public readonly toolName: string,
+    public readonly timeoutMs: number,
+  ) {
+    super(message, 'TOOL_TIMEOUT');
+  }
+}
+
 export type Result<T, E = DomainError> =
   | { ok: true; value: T }
   | { ok: false; error: E };

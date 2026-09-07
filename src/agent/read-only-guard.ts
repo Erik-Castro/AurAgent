@@ -1,4 +1,4 @@
-import type { Workspace, WorkspaceEntry } from '../ports/workspace.ts';
+import type { FileStat, Workspace, WorkspaceEntry } from '../ports/workspace.ts';
 import { PermissionError } from '../core/errors.ts';
 
 export class ReadOnlyGuard implements Workspace {
@@ -36,5 +36,17 @@ export class ReadOnlyGuard implements Workspace {
 
   async readMultiple(paths: string[]): Promise<WorkspaceEntry[]> {
     return await this.inner.readMultiple(paths);
+  }
+
+  async stat(path: string): Promise<FileStat | null> {
+    return await this.inner.stat(path);
+  }
+
+  readStream(path: string): AsyncIterable<string> {
+    return this.inner.readStream(path);
+  }
+
+  async lineCount(path: string): Promise<number> {
+    return await this.inner.lineCount(path);
   }
 }

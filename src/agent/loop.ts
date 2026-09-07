@@ -13,7 +13,7 @@ import {
 import { buildPromptFromState } from './prompt-builder.ts';
 import { applyAssistantFinal, applyToolResults } from './state-transitions.ts';
 import type { AgentState } from './state.ts';
-import { SterileLoopError } from '../core/errors.ts';
+import { SterileLoopError, ToolTimeoutError } from '../core/errors.ts';
 import { DEFAULT_FALLBACK_NUM_CTX, TOOL_PROTOCOL_BLOCK } from '../core/constants.ts';
 import type {
   GenerateResponse,
@@ -33,6 +33,7 @@ export async function runReActLoop(
   let iterations = 0;
   const sterileDetector = new SterileLoopDetector(
     ctx.config.sterileLoopThreshold,
+    ctx.eventBus,
   );
   let lastOutput = '';
   let explainer: Explainer | undefined;
@@ -209,6 +210,7 @@ export async function runReActLoopWithState(
   const startTime = Date.now();
   const sterileDetector = new SterileLoopDetector(
     ctx.config.sterileLoopThreshold,
+    ctx.eventBus,
   );
   let lastOutput = '';
   let explainer: Explainer | undefined;
@@ -664,14 +666,40 @@ async function executeOneToolCall(
   }
 
   try {
-    const result: ToolResult = await handler.execute(call, {
+    const toolCtx = {
       workspace: ctx.workspace,
       processRunner: ctx.processRunner,
       eventBus: ctx.eventBus,
       memoryStore: ctx.memoryStore,
       config: ctx.config,
       readInput: ctx.readInput,
-    });
+    };
+
+    let result: ToolResult;
+    if (handler.timeoutMs) {
+      const ac = new AbortController();
+      const timer = setTimeout(() => ac.abort(), handler.timeoutMs);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        ac.signal.addEventListener('abort', () => {
+          reject(new ToolTimeoutError(
+            `Tool "${call.name}" timed out after ${handler.timeoutMs}ms`,
+            call.name,
+            handler.timeoutMs!,
+          ));
+        });
+      });
+      try {
+        result = await Promise.race([
+          handler.execute(call, toolCtx),
+          timeoutPromise,
+        ]);
+      } finally {
+        clearTimeout(timer);
+        ac.abort(); // cleanup
+      }
+    } else {
+      result = await handler.execute(call, toolCtx);
+    }
 
     if (
       call.name === 'WriteFile' &&
@@ -710,11 +738,20 @@ async function executeOneToolCall(
     };
   } catch (err) {
     const msg = (err as Error).message;
-    ctx.eventBus.emit('tool:failed', {
-      tool: call.name,
-      callId: call.id,
-      error: msg,
-    });
+    if (err instanceof ToolTimeoutError) {
+      ctx.eventBus.emit('tool:timeout', {
+        tool: call.name,
+        callId: call.id,
+        timeoutMs: err.timeoutMs,
+        error: msg,
+      });
+    } else {
+      ctx.eventBus.emit('tool:failed', {
+        tool: call.name,
+        callId: call.id,
+        error: msg,
+      });
+    }
     return {
       callId: call.id,
       output: `Erro na execução: ${msg}`,

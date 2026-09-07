@@ -17,5 +17,7 @@ export interface ToolHandler {
   definition: ToolDefinition;
   riskLevel: 'low' | 'medium' | 'high';
   parallelSafe: boolean;
+  /** Maximum execution time in milliseconds. Omit for no timeout. */
+  timeoutMs?: number;
   execute(call: ToolCall, ctx: ToolContext): Promise<ToolResult>;
 }

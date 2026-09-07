@@ -1,4 +1,4 @@
-import type { Workspace, WorkspaceEntry } from '../src/ports/workspace.ts';
+import type { FileStat, Workspace, WorkspaceEntry } from '../src/ports/workspace.ts';
 
 export class MemoryWorkspace implements Workspace {
   files = new Map<string, string>();
@@ -32,5 +32,25 @@ export class MemoryWorkspace implements Workspace {
         return { path, content, language: '', size: content.length };
       }),
     );
+  }
+
+  stat(path: string): Promise<FileStat | null> {
+    const content = this.files.get(path);
+    if (content === undefined) return Promise.resolve(null);
+    return Promise.resolve({ size: content.length, isFile: true });
+  }
+
+  async *readStream(path: string): AsyncIterable<string> {
+    const content = this.files.get(path) ?? '';
+    const lines = content.split('\n');
+    for (const line of lines) {
+      yield line;
+    }
+  }
+
+  lineCount(path: string): Promise<number> {
+    const content = this.files.get(path) ?? '';
+    if (content === '') return Promise.resolve(0);
+    return Promise.resolve(content.split('\n').length);
   }
 }

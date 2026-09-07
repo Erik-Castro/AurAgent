@@ -1,4 +1,4 @@
-import type { Workspace, WorkspaceEntry } from '../ports/workspace.ts';
+import type { FileStat, Workspace, WorkspaceEntry } from '../ports/workspace.ts';
 import { WorkspacePathError } from '../core/errors.ts';
 
 function normalizeSegments(abs: string): string {
@@ -82,6 +82,52 @@ export class DenoWorkspace implements Workspace {
         return { path, content, language: ext, size: content.length };
       }),
     );
+  }
+
+  async stat(path: string): Promise<FileStat | null> {
+    try {
+      const info = await Deno.stat(this.resolve(path));
+      return { size: info.size, isFile: info.isFile };
+    } catch (err) {
+      if (err instanceof Deno.errors.NotFound) return null;
+      throw err;
+    }
+  }
+
+  async *readStream(path: string): AsyncIterable<string> {
+    const file = await Deno.open(this.resolve(path), { read: true });
+    try {
+      const decoder = new TextDecoder('utf-8', { fatal: false });
+      const reader = file.readable.getReader();
+      let buffer = '';
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop()!;
+          for (const line of lines) {
+            yield line;
+          }
+        }
+        if (buffer.length > 0) {
+          yield buffer;
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } finally {
+      file.close();
+    }
+  }
+
+  async lineCount(path: string): Promise<number> {
+    let count = 0;
+    for await (const _line of this.readStream(path)) {
+      count++;
+    }
+    return count;
   }
 
   private resolve(path: string): string {

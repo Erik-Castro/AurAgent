@@ -80,21 +80,19 @@ Deno.test('ReadFileHandler retorna conteúdo', async () => {
     makeCall({ name: 'ReadFile', args: { paths: ['test.txt'] } }),
     ctx,
   );
-  const parsed = JSON.parse(result.output);
-  assertEquals(parsed.length, 1);
-  assertEquals(parsed[0].path, 'test.txt');
-  assertEquals(parsed[0].content, 'conteúdo do arquivo');
+  assert(result.output.includes('1: conteúdo do arquivo'));
+  assert(result.output.includes('test.txt (lines 1-1 of 1)'));
 });
 
-Deno.test('ReadFileHandler com lines filter', async () => {
+Deno.test('ReadFileHandler com offset/limit', async () => {
   const ctx = createMockContext();
   await ctx.workspace.write('multi.txt', 'linha1\nlinha2\nlinha3');
   const result = await handlers.readFileHandler.execute(
-    makeCall({ name: 'ReadFile', args: { paths: ['multi.txt'], lines: { start: 0, end: 2 } } }),
+    makeCall({ name: 'ReadFile', args: { paths: ['multi.txt'], offset: 2, limit: 1 } }),
     ctx,
   );
-  const parsed = JSON.parse(result.output);
-  assertEquals(parsed[0].content, 'linha1\nlinha2');
+  assert(result.output.includes('2: linha2'));
+  assert(result.output.includes('(Use offset=3 to continue reading)'));
 });
 
 Deno.test('WriteFileHandler cria arquivo', async () => {

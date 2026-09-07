@@ -9,6 +9,8 @@ export type EventName =
   | 'tool:failed'
   | 'tool:hitl_required'
   | 'tool:gate_failed'
+  | 'tool:timeout'
+  | 'tool:repeat_warning'
   | 'model:request_started'
   | 'model:request_finished'
   | 'checkpoint:created'
