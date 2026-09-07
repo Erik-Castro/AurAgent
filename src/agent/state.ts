@@ -40,6 +40,7 @@ export interface AgentState {
     sterileStop: boolean;
     readonly: boolean;
   };
+  summary?: string;
 }
 
 export function isValidArtifactPath(path: string): boolean {

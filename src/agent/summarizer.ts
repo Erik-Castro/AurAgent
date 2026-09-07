@@ -1,5 +1,11 @@
 import type { Message } from '../core/types.ts';
 import type { AgentResult } from './agent.ts';
+import type { AgentState } from './state.ts';
+import {
+  extractSummaryFromMessages,
+  extractSummaryFromState,
+  renderSummary,
+} from './summary-format.ts';
 
 export function truncateContent(
   content: string,
@@ -16,21 +22,35 @@ export function truncateContent(
   return `${start}\n\n[... conteúdo truncado, ${omitted} caracteres omitidos ...]\n\n${end}`;
 }
 
-export function buildAgeSummary(messages: Message[]): string {
-  const lines = messages.map((m) => {
-    const preview = m.content.slice(0, 150).replace(/\n/g, ' ');
-    return `[${m.role}]: ${preview}`;
-  });
-
-  return `[Resumo de ações anteriores]\n${lines.join('\n')}`;
+export function buildCompactionSummary(state: AgentState, messages?: Message[]): string;
+export function buildCompactionSummary(messages: Message[], state?: AgentState): string;
+export function buildCompactionSummary(
+  arg1: Message[] | AgentState,
+  arg2?: Message[] | AgentState,
+): string {
+  if (Array.isArray(arg1)) {
+    // buildCompactionSummary(messages, state?)
+    const messages = arg1;
+    const state = arg2 as AgentState | undefined;
+    const summary = state
+      ? extractSummaryFromState(state, messages)
+      : extractSummaryFromMessages(messages);
+    return renderSummary(summary);
+  }
+  // buildCompactionSummary(state, messages?)
+  const state = arg1;
+  const messages = arg2 as Message[] | undefined;
+  const summary = extractSummaryFromState(state, messages);
+  return renderSummary(summary);
 }
 
 export function buildSessionSummary(
   task: string,
   result: AgentResult,
   messageCount: number,
+  summary?: string,
 ): Record<string, unknown> {
-  return {
+  const base: Record<string, unknown> = {
     task,
     status: result.status,
     iterations: result.iterations,
@@ -38,4 +58,8 @@ export function buildSessionSummary(
     timestamp: Date.now(),
     messageCount,
   };
+  if (summary) {
+    base.compactionSummary = summary;
+  }
+  return base;
 }

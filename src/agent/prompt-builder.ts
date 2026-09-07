@@ -80,13 +80,20 @@ function buildSystemContent(
   toolDefinitions: ToolDefinition[],
   protocolBlock: string,
 ): string {
-  const parts: string[] = [
+  const parts: string[] = [];
+
+  // Inject compacted context summary if available
+  if (state.summary) {
+    parts.push(state.summary);
+  }
+
+  parts.push(
     'You are Aur, an autonomous coding agent.',
     `Working directory: ${config.workingDir}`,
     protocolBlock,
     buildCompactToolCatalog(toolDefinitions, config.compactCatalogMaxTokens),
     `## Constraints\n${state.constraints.map((c) => `- ${c}`).join('\n')}`,
-  ];
+  );
   return parts.join('\n\n');
 }
 

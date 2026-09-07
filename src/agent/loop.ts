@@ -5,6 +5,7 @@ import { SterileLoopDetector } from './sterile-detector.ts';
 import { Explainer } from './explainer.ts';
 import { normalizeModelResponse } from './normalize-response.ts';
 import {
+  estimateTokens,
   maxTokensOut,
   resolveToolProtocolMode,
   shouldSendNativeTools,
@@ -13,8 +14,9 @@ import {
 import { buildPromptFromState } from './prompt-builder.ts';
 import { applyAssistantFinal, applyToolResults } from './state-transitions.ts';
 import type { AgentState } from './state.ts';
+import { buildCompactionSummary } from './summarizer.ts';
 import { SterileLoopError, ToolTimeoutError } from '../core/errors.ts';
-import { DEFAULT_FALLBACK_NUM_CTX, TOOL_PROTOCOL_BLOCK } from '../core/constants.ts';
+import { DEFAULT_COMPACTION_THRESHOLD, DEFAULT_FALLBACK_NUM_CTX, TOOL_PROTOCOL_BLOCK } from '../core/constants.ts';
 import type {
   GenerateResponse,
   StreamDisplay,
@@ -184,11 +186,17 @@ export async function runReActLoop(
       };
     }
 
-    memory.summarizeByAge();
-    ctx.eventBus.emit('context:summarized', {
-      iteration: iterations,
-      messageCount: memory.getMessageCount(),
-    });
+    // Context compression at ~70% occupancy (DeepSeek pattern)
+    const msgTokens = trimmed.messages.reduce((s, m) => s + estimateTokens(m.content), 0);
+    if (msgTokens > promptBudget * DEFAULT_COMPACTION_THRESHOLD) {
+      const summary = buildCompactionSummary(memory.getMessages());
+      memory.compressWithSummary(summary);
+      ctx.eventBus.emit('context:compressed', {
+        iteration: iterations,
+        summaryLen: summary.length,
+        messageCount: memory.getMessageCount(),
+      });
+    }
 
     ctx.eventBus.emit('iteration:finished', { iteration: iterations });
   }
@@ -256,6 +264,36 @@ export async function runReActLoopWithState(
         iterations: state.iteration,
         durationMs: Date.now() - startTime,
       };
+    }
+
+    // Context compression at ~70% occupancy (DeepSeek pattern)
+    if (prompt.tokensEst > promptBudget * DEFAULT_COMPACTION_THRESHOLD) {
+      const summary = buildCompactionSummary(state);
+      state = { ...state, summary };
+      ctx.eventBus.emit('context:compressed', {
+        iteration: state.iteration,
+        summaryLen: summary.length,
+        tokensEst: prompt.tokensEst,
+      });
+      // Rebuild prompt with summary injected into system content
+      try {
+        prompt = buildPromptFromState(
+          state,
+          ctx.config,
+          tools,
+          TOOL_PROTOCOL_BLOCK,
+          { promptBudget },
+        );
+      } catch (err) {
+        const msg = `Erro: prompt excede orçamento mesmo após compressão. ${(err as Error).message}`;
+        ctx.eventBus.emit('task:completed', { status: 'error', iterations: state.iteration });
+        return {
+          status: 'error',
+          output: msg,
+          iterations: state.iteration,
+          durationMs: Date.now() - startTime,
+        };
+      }
     }
 
     ctx.eventBus.emit('prompt:built', {
@@ -428,56 +466,79 @@ async function streamResponse(
   const useExplainer = !display && ctx.config.explain;
   const request = { messages, tools, ...budget };
 
-  if (!useDisplay && !useExplainer) {
-    return await ctx.modelProvider.generate(request);
-  }
-
-  const sink = display ?? new Explainer(true);
-  if (sink instanceof Explainer) onExplainer?.(sink);
-  sink.startIteration(iteration);
-
-  const stream = ctx.modelProvider.stream(request);
-  const reader = stream.getReader();
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    switch (value.type) {
-      case 'token':
-        sink.onToken(value.text);
-        break;
-      case 'thinking':
-        if (sink.onThinking) sink.onThinking(value.text);
-        break;
-      case 'tool_call':
-        sink.onToolCall(value.call);
-        break;
-      case 'done':
-        sink.onDone(value.finishReason);
-        break;
-      case 'error':
-        sink.onError(value.message);
-        break;
+  // Check prompt cache before calling LLM
+  if (ctx.promptCache?.enabled) {
+    const cached = await ctx.promptCache.lookup(
+      ctx.config.model,
+      messages,
+      tools,
+      budget ?? {},
+    );
+    if (cached) {
+      return cached.response;
     }
   }
 
-  if (useDisplay) (sink as StreamDisplay).flush();
+  let response: GenerateResponse;
 
-  const raw = sink.getResult?.() ?? {
-    content: '',
-    toolCalls: undefined,
-    finishReason: 'stop' as const,
-  };
-  const content = (raw.content ?? '').trim() !== ''
-    ? raw.content
-    : (raw.thinking ?? '');
-  return {
-    content,
-    thinking: raw.thinking,
-    toolCalls: raw.toolCalls,
-    finishReason: raw.finishReason,
-  };
+  if (!useDisplay && !useExplainer) {
+    response = await ctx.modelProvider.generate(request);
+  } else {
+    const sink = display ?? new Explainer(true);
+    if (sink instanceof Explainer) onExplainer?.(sink);
+    sink.startIteration(iteration);
+
+    const stream = ctx.modelProvider.stream(request);
+    const reader = stream.getReader();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      switch (value.type) {
+        case 'token':
+          sink.onToken(value.text);
+          break;
+        case 'thinking':
+          if (sink.onThinking) sink.onThinking(value.text);
+          break;
+        case 'tool_call':
+          sink.onToolCall(value.call);
+          break;
+        case 'done':
+          sink.onDone(value.finishReason);
+          break;
+        case 'error':
+          sink.onError(value.message);
+          break;
+      }
+    }
+
+    if (useDisplay) (sink as StreamDisplay).flush();
+
+    const raw = sink.getResult?.() ?? {
+      content: '',
+      toolCalls: undefined,
+      finishReason: 'stop' as const,
+    };
+    response = {
+      content: (raw.content ?? '').trim() !== ''
+        ? raw.content
+        : (raw.thinking ?? ''),
+      thinking: raw.thinking,
+      toolCalls: raw.toolCalls,
+      finishReason: raw.finishReason,
+    };
+  }
+
+  // Store in cache (fire-and-forget)
+  if (ctx.promptCache?.enabled && response.finishReason !== 'error') {
+    ctx.promptCache
+      .store(ctx.config.model, messages, tools, budget ?? {}, response)
+      .catch(() => {});
+  }
+
+  return response;
 }
 
 interface ToolExecResult {

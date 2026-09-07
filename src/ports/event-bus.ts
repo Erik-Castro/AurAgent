@@ -18,9 +18,13 @@ export type EventName =
   | 'memory:loaded'
   | 'memory:persisted'
   | 'context:summarized'
+  | 'context:compressed'
   | 'state:initialized'
   | 'state:updated'
-  | 'prompt:built';
+  | 'prompt:built'
+  | 'cache:hit'
+  | 'cache:miss'
+  | 'cache:store';
 
 export interface Event {
   name: EventName;

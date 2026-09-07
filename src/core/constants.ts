@@ -35,6 +35,14 @@ export const DEFAULT_MAX_PLAN_STEPS = 12;
 export const DEFAULT_MAX_ARTIFACTS_IN_PROMPT = 30;
 export const DEFAULT_MAX_ACCEPTANCE_ITEMS = 8;
 
+// SPEC-OC-005: Prompt Cache
+export const DEFAULT_CACHE_SIMILARITY_THRESHOLD = 0.92;
+export const DEFAULT_CACHE_MAX_ENTRIES = 1000;
+export const DEFAULT_CACHE_TTL_MS = 3_600_000; // 1 hour
+
+// SPEC-OC-006: Context Compression
+export const DEFAULT_COMPACTION_THRESHOLD = 0.70;
+
 export const TOOL_PROTOCOL_BLOCK = `## Tool protocol
 You may call tools. When you need a tool, respond with ONLY a JSON object:
 {"name":"<ToolName>","arguments":{...}}

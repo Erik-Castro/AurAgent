@@ -2,7 +2,9 @@ import type { AgentConfig, Message, ToolCall, ToolDefinition } from '../core/typ
 import type { Workspace } from '../ports/workspace.ts';
 import { TOOL_PROTOCOL_BLOCK, WORKSPACE_INSTRUCTION_FILES } from '../core/constants.ts';
 import { buildCompactToolCatalog } from '../tools/compact-catalog.ts';
-import { buildAgeSummary, truncateContent } from './summarizer.ts';
+import { truncateContent } from './summarizer.ts';
+
+const RECENT_MESSAGES_TO_KEEP = 4;
 
 export class WorkingMemory {
   private messages: Message[] = [];
@@ -87,22 +89,27 @@ export class WorkingMemory {
     return [...this.messages];
   }
 
-  summarizeByAge(maxTurns: number = 20): void {
-    const maxMessages = maxTurns * 2;
-    if (this.messages.length <= maxMessages) return;
+  compressWithSummary(summaryText: string): void {
+    const systemIdx = this.messages[0]?.role === 'system' ? 0 : -1;
+    const systemMsg = systemIdx === 0 ? this.messages[0] : null;
 
-    const systemMsg = this.messages[0]?.role === 'system' ? this.messages[0] : null;
-    const keep = this.messages.slice(-maxMessages);
-    const oldMessages = systemMsg
-      ? this.messages.slice(1, -maxMessages)
-      : this.messages.slice(0, -maxMessages);
+    // Keep system message + last N messages for recent context
+    const keepCount = RECENT_MESSAGES_TO_KEEP;
+    const keepStart = Math.max(this.messages.length - keepCount, systemIdx + 1);
+    const recentMessages = this.messages.slice(keepStart);
 
-    if (oldMessages.length === 0) return;
+    // Don't compress if there's nothing old to replace
+    const oldEnd = keepStart;
+    const oldStart = systemIdx + 1;
+    if (oldEnd <= oldStart) return;
 
-    const summary = buildAgeSummary(oldMessages);
-    const summaryMsg: Message = { role: 'system', content: summary };
+    const summaryMsg: Message = { role: 'system', content: summaryText };
 
-    this.messages = systemMsg ? [systemMsg, summaryMsg, ...keep] : [summaryMsg, ...keep];
+    if (systemMsg) {
+      this.messages = [systemMsg, summaryMsg, ...recentMessages];
+    } else {
+      this.messages = [summaryMsg, ...recentMessages];
+    }
   }
 
   getMessageCount(): number {

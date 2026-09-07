@@ -75,31 +75,46 @@ Deno.test('addToolResult não trunca abaixo do threshold', () => {
   assertEquals(mem.getMessages()[0].content, content);
 });
 
-Deno.test('summarizeByAge não faz nada com < 40 mensagens', () => {
+Deno.test('compressWithSummary não faz nada quando há poucas mensagens', () => {
   const mem = new WorkingMemory(defaultConfig);
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 3; i++) {
     mem.addUser(`msg ${i}`);
   }
-  assertEquals(mem.getMessageCount(), 10);
-  mem.summarizeByAge();
-  assertEquals(mem.getMessageCount(), 10);
+  assertEquals(mem.getMessageCount(), 3);
+  mem.compressWithSummary('<compacted-summary>test</compacted-summary>');
+  assertEquals(mem.getMessageCount(), 3);
 });
 
-Deno.test('summarizeByAge compacta > 40 mensagens mantendo system', () => {
+Deno.test('compressWithSummary compacta mensagens antigas mantendo system e recentes', () => {
   const mem = new WorkingMemory(defaultConfig);
   mem.addSystem('system prompt');
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 15; i++) {
     mem.addUser(`user ${i}`);
     mem.addAssistant(`resp ${i}`);
   }
-  assertEquals(mem.getMessageCount(), 101); // system + 50*2
-  mem.summarizeByAge(20); // maxTurns=20 → maxMessages=40
+  const totalBefore = mem.getMessageCount(); // system + 15*2 = 31
+  assert(totalBefore > 4);
+  mem.compressWithSummary('<compacted-summary>old context</compacted-summary>');
   const msgs = mem.getMessages();
-  assert(msgs.length < 101);
+  // Should have: system + summary + last 4 messages
+  assert(msgs.length < totalBefore);
   assertEquals(msgs[0].role, 'system');
   assertEquals(msgs[0].content, 'system prompt');
-  assertEquals(msgs[1].role, 'system'); // summary message
-  assert(msgs[1].content.startsWith('[Resumo'));
+  assertEquals(msgs[1].role, 'system');
+  assert(msgs[1].content.startsWith('<compacted-summary>'));
+});
+
+Deno.test('compressWithSummary preserva system como primeira mensagem', () => {
+  const mem = new WorkingMemory(defaultConfig);
+  mem.addSystem('system prompt');
+  for (let i = 0; i < 10; i++) {
+    mem.addUser(`msg ${i}`);
+  }
+  mem.compressWithSummary('<compacted-summary>ctx</compacted-summary>');
+  const msgs = mem.getMessages();
+  assertEquals(msgs[0].role, 'system');
+  assertEquals(msgs[0].content, 'system prompt');
+  assertEquals(msgs[1].content, '<compacted-summary>ctx</compacted-summary>');
 });
 
 Deno.test('loadInstructionFiles do workspace', async () => {
